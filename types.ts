@@ -64,6 +64,7 @@ export interface Job {
   salary: number; // Daily salary
   startHour: number;
   endHour: number;
+  workDays: number[]; // [1, 2, 3, 4, 5] for Mon-Fri
   companyType?: string; // 'design', 'business', 'internet', 'store', 'restaurant'
 }
 
@@ -127,8 +128,11 @@ export interface LogEntry {
 }
 
 export interface GameTime {
-  day: number;
+  day: number;      // 累计天数
   hour: number;
   minute: number;
   speed: number;
+  weekday: number;  // 1-7 (1=周一, 7=周日)
+  month: number;    // 1-12
+  date: number;     // 1-30 (每月30天简化版)
 }

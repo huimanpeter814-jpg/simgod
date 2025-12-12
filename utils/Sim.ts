@@ -1,4 +1,4 @@
-﻿import { CONFIG, BASE_DECAY, LIFE_GOALS, MBTI_TYPES, SURNAMES, GIVEN_NAMES, ZODIACS, JOBS, BUFFS, ITEMS, ASSET_CONFIG, FURNITURE } from '../constants';
+﻿import { CONFIG, BASE_DECAY, LIFE_GOALS, MBTI_TYPES, SURNAMES, GIVEN_NAMES, ZODIACS, JOBS, BUFFS, ITEMS, ASSET_CONFIG, FURNITURE, HOLIDAYS } from '../constants';
 import { Vector2, Job, Buff, SimAppearance } from '../types';
 import { GameStore } from './simulation';
 import { minutes, getJobCapacity } from './simulationHelpers';
@@ -410,58 +410,67 @@ export class Sim {
     }
 
     checkSchedule() {
-        if (this.job.id !== 'unemployed') {
-            const currentHour = GameStore.time.hour;
-            const isWorkTime = currentHour >= this.job.startHour && currentHour < this.job.endHour;
+        if (this.job.id === 'unemployed') return;
 
-            if (isWorkTime && this.action !== 'working' && this.action !== 'commuting') {
-                let deskSearchLabel = '工位';
-                if (this.job.companyType === 'internet') {
-                    deskSearchLabel = this.job.level >= 4 ? 'CTO' : '开发';
-                } else if (this.job.companyType === 'design') {
-                    deskSearchLabel = this.job.level >= 4 ? '总监' : '设计';
-                } else if (this.job.companyType === 'business') {
-                    deskSearchLabel = this.job.level >= 3 ? '经理' : '商务';
-                } else if (this.job.companyType === 'store') {
-                    deskSearchLabel = '前台';
-                } else if (this.job.companyType === 'restaurant') {
-                    deskSearchLabel = this.job.title === '厨师' ? '后厨' : '前台';
-                }
+        // [New] 检查是否是节日
+        const isHoliday = HOLIDAYS.some(h => h.month === GameStore.time.month && h.day === GameStore.time.date);
+        
+        // [New] 检查是否是工作日
+        const isWorkDay = this.job.workDays.includes(GameStore.time.weekday);
 
-                const desk = FURNITURE.find(f =>
-                    f.label.includes(deskSearchLabel) &&
-                    f.utility === 'work' &&
-                    (!f.reserved || f.reserved === this.id) &&
-                    !GameStore.sims.some(s => s.id !== this.id && s.interactionTarget?.id === f.id)
-                );
+        // 如果是节日或者不是工作日，则今天放假
+        if (isHoliday || !isWorkDay) return;
 
-                if (desk) {
-                    this.target = { x: desk.x + desk.w / 2, y: desk.y + desk.h / 2 };
-                    this.interactionTarget = desk;
-                    this.action = 'commuting';
-                    this.say("去上班 💼", 'act');
-                } else {
-                    this.target = { x: 800, y: 350 };
-                    this.action = 'commuting';
-                }
-            } else if (!isWorkTime && (this.action === 'working' || this.action === 'commuting')) {
-                this.action = 'idle';
-                this.target = null;
-                this.interactionTarget = null;
-                this.money += this.job.salary;
-                this.say(`下班! +$${this.job.salary}`, 'money');
-                this.addBuff(BUFFS.stressed);
+        const currentHour = GameStore.time.hour;
+        const isWorkTime = currentHour >= this.job.startHour && currentHour < this.job.endHour;
 
-                let dailyPerf = 10;
-                if (this.mood > 80) dailyPerf += 5;
-                if (this.hasBuff('well_rested')) dailyPerf += 5;
-                if (this.needs.fun < 30) dailyPerf -= 5;
-                this.workPerformance += dailyPerf;
+        if (isWorkTime && this.action !== 'working' && this.action !== 'commuting') {
+            let deskSearchLabel = '工位';
+            if (this.job.companyType === 'internet') {
+                deskSearchLabel = this.job.level >= 4 ? 'CTO' : '开发';
+            } else if (this.job.companyType === 'design') {
+                deskSearchLabel = this.job.level >= 4 ? '总监' : '设计';
+            } else if (this.job.companyType === 'business') {
+                deskSearchLabel = this.job.level >= 3 ? '经理' : '商务';
+            } else if (this.job.companyType === 'store') {
+                deskSearchLabel = '前台';
+            } else if (this.job.companyType === 'restaurant') {
+                deskSearchLabel = this.job.title === '厨师' ? '后厨' : '前台';
+            }
 
-                if (this.workPerformance > 300 && this.job.level < 5) {
-                    this.promote();
-                    this.workPerformance = 0;
-                }
+            const desk = FURNITURE.find(f =>
+                f.label.includes(deskSearchLabel) &&
+                f.utility === 'work' &&
+                (!f.reserved || f.reserved === this.id) &&
+                !GameStore.sims.some(s => s.id !== this.id && s.interactionTarget?.id === f.id)
+            );
+
+            if (desk) {
+                this.target = { x: desk.x + desk.w / 2, y: desk.y + desk.h / 2 };
+                this.interactionTarget = desk;
+                this.action = 'commuting';
+                this.say("去上班 💼", 'act');
+            } else {
+                this.target = { x: 800, y: 350 };
+                this.action = 'commuting';
+            }
+        } else if (!isWorkTime && (this.action === 'working' || this.action === 'commuting')) {
+            this.action = 'idle';
+            this.target = null;
+            this.interactionTarget = null;
+            this.money += this.job.salary;
+            this.say(`下班! +$${this.job.salary}`, 'money');
+            this.addBuff(BUFFS.stressed);
+
+            let dailyPerf = 10;
+            if (this.mood > 80) dailyPerf += 5;
+            if (this.hasBuff('well_rested')) dailyPerf += 5;
+            if (this.needs.fun < 30) dailyPerf -= 5;
+            this.workPerformance += dailyPerf;
+
+            if (this.workPerformance > 300 && this.job.level < 5) {
+                this.promote();
+                this.workPerformance = 0;
             }
         }
     }

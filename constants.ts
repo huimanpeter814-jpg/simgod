@@ -1,5 +1,5 @@
 /// <reference types="vite/client" />
-import { Furniture } from './types';
+import { Furniture, Job } from './types';
 
 // 1. 扫描文件 (支持 png, jpg, jpeg, webp)
 const faceFiles = import.meta.glob('/public/assets/face/*.{png,jpg,jpeg,webp}', { eager: true });
@@ -178,25 +178,25 @@ export const SKILLS = [
     { id: 'gardening', label: '园艺' }, { id: 'fishing', label: '钓鱼' }
 ];
 
-export const JOBS = [
-    { id: 'unemployed', title: '无业游民', level: 0, salary: 0, startHour: 0, endHour: 0 },
+export const JOBS: Job[] = [
+    { id: 'unemployed', title: '无业游民', level: 0, salary: 0, startHour: 0, endHour: 0, workDays: [] },
 
     // Internet Co
-    { id: 'developer', title: '程序员', level: 2, salary: 500, startHour: 10, endHour: 19, companyType: 'internet' },
-    { id: 'cto', title: '技术总监', level: 4, salary: 1500, startHour: 10, endHour: 17, companyType: 'internet' },
+    { id: 'developer', title: '程序员', level: 2, salary: 500, startHour: 10, endHour: 19, companyType: 'internet', workDays: [1, 2, 3, 4, 5] },
+    { id: 'cto', title: '技术总监', level: 4, salary: 1500, startHour: 10, endHour: 17, companyType: 'internet', workDays: [1, 2, 3, 4, 5] },
 
     // Design Co
-    { id: 'designer', title: '设计师', level: 2, salary: 450, startHour: 9, endHour: 18, companyType: 'design' },
-    { id: 'art_director', title: '艺术总监', level: 4, salary: 1200, startHour: 10, endHour: 16, companyType: 'design' },
+    { id: 'designer', title: '设计师', level: 2, salary: 450, startHour: 9, endHour: 18, companyType: 'design', workDays: [1, 2, 3, 4, 5] },
+    { id: 'art_director', title: '艺术总监', level: 4, salary: 1200, startHour: 10, endHour: 16, companyType: 'design', workDays: [1, 2, 3, 4] },
 
     // Business Co
-    { id: 'clerk_biz', title: '商务专员', level: 2, salary: 400, startHour: 9, endHour: 17, companyType: 'business' },
-    { id: 'manager', title: '经理', level: 3, salary: 800, startHour: 9, endHour: 17, companyType: 'business' },
+    { id: 'clerk_biz', title: '商务专员', level: 2, salary: 400, startHour: 9, endHour: 17, companyType: 'business', workDays: [1, 2, 3, 4, 5, 6] },
+    { id: 'manager', title: '经理', level: 3, salary: 800, startHour: 9, endHour: 17, companyType: 'business', workDays: [1, 2, 3, 4, 5] },
 
     // Services
-    { id: 'clerk_book', title: '书店店员', level: 1, salary: 160, startHour: 9, endHour: 17, companyType: 'store' },
-    { id: 'waiter', title: '服务员', level: 1, salary: 180, startHour: 11, endHour: 20, companyType: 'restaurant' },
-    { id: 'cook', title: '厨师', level: 2, salary: 350, startHour: 10, endHour: 20, companyType: 'restaurant' },
+    { id: 'clerk_book', title: '书店店员', level: 1, salary: 160, startHour: 9, endHour: 17, companyType: 'store', workDays: [1, 2, 3, 4, 5, 6, 7] },
+    { id: 'waiter', title: '服务员', level: 1, salary: 180, startHour: 11, endHour: 20, companyType: 'restaurant', workDays: [1, 2, 3, 4, 5, 6, 7] },
+    { id: 'cook', title: '厨师', level: 2, salary: 350, startHour: 10, endHour: 20, companyType: 'restaurant', workDays: [1, 2, 3, 4, 5, 6] },
 ];
 
 export const BUFFS = {
@@ -210,7 +210,18 @@ export const BUFFS = {
     anxious: { id: 'anxious', label: '焦虑', type: 'bad' as const, duration: 60 },
     movie_fun: { id: 'movie_fun', label: '精彩电影', type: 'good' as const, duration: 120 },
     good_meal: { id: 'good_meal', label: '美味佳肴', type: 'good' as const, duration: 120 },
+    holiday_joy: { id: 'holiday_joy', label: '节日快乐', type: 'good' as const, duration: 240 },
+    weekend_vibes: { id: 'weekend_vibes', label: '周末愉快', type: 'good' as const, duration: 200 },
 };
+
+// 节日配置 (Month, Day)
+export const HOLIDAYS = [
+    { month: 1, day: 1, name: "新年" },
+    { month: 2, day: 14, name: "情人节" },
+    { month: 5, day: 1, name: "劳动节" },
+    { month: 10, day: 1, name: "国庆节" },
+    { month: 12, day: 25, name: "圣诞节" },
+];
 
 export const LIFE_GOALS = ['成为百万富翁', '博学多才', '交际花', '寻找真爱', '平平淡淡'];
 

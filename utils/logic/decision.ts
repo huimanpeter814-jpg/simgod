@@ -95,8 +95,7 @@ export const DecisionLogic = {
 
     findHuman(sim: Sim) {
         let others = GameStore.sims.filter(s => s.id !== sim.id && s.action !== 'sleeping' && s.action !== 'working');
-        // 简单的兼容性排序，这里需要简单计算，避免循环依赖过于复杂，直接从 SocialLogic 复制简单逻辑或简化
-        // 为了简化，这里我们仅根据关系值排序
+        // 简单的兼容性排序
         others.sort((a, b) => {
             let relA = (sim.relationships[a.id]?.friendship || 0);
             let relB = (sim.relationships[b.id]?.friendship || 0);
@@ -105,7 +104,16 @@ export const DecisionLogic = {
 
         if (others.length) {
             let partner = others[Math.floor(Math.random() * Math.min(others.length, 3))];
-            sim.target = { x: partner.pos.x, y: partner.pos.y };
+            
+            // [优化] 计算一个围绕对方的随机位置，保持“社交距离”
+            const angle = Math.random() * Math.PI * 2;
+            const socialDistance = 40; // 40像素的距离，防止重叠
+            
+            sim.target = { 
+                x: partner.pos.x + Math.cos(angle) * socialDistance, 
+                y: partner.pos.y + Math.sin(angle) * socialDistance 
+            };
+            
             sim.interactionTarget = { type: 'human', ref: partner };
         } else {
             DecisionLogic.wander(sim);
