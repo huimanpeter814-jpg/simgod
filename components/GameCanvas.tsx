@@ -7,7 +7,7 @@ const GameCanvas: React.FC = () => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const requestRef = useRef<number | null>(null);
 
-    // [New] Camera State
+    // Camera State
     const [camera, setCamera] = useState({ x: 0, y: 0 });
     const isDragging = useRef(false);
     const lastMousePos = useRef({ x: 0, y: 0 });
@@ -16,106 +16,154 @@ const GameCanvas: React.FC = () => {
         // Ensure pixel art look
         ctx.imageSmoothingEnabled = false;
 
-        // Clear Screen
+        // 1. Clear Screen (UI Background)
         ctx.fillStyle = '#121212';
         ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
 
         // --- Apply Camera Transform ---
         ctx.save();
-        ctx.translate(-camera.x, -camera.y);
+        // 对摄像机坐标取整，避免像素抖动
+        const camX = Math.floor(camera.x);
+        const camY = Math.floor(camera.y);
+        ctx.translate(-camX, -camY);
+
+        // Calculate visible mouse pos for hover detection
+        const mouseWorldX = lastMousePos.current.x + camX;
+        const mouseWorldY = lastMousePos.current.y + camY;
 
         // Background & Palette
         const p = getActivePalette();
-        // Draw World Background (The entire map size)
+
+        // 2. Draw World Background
         ctx.fillStyle = p.bg;
         ctx.fillRect(0, 0, CONFIG.CANVAS_W, CONFIG.CANVAS_H);
 
-        // Rooms (Floors & Walls)
+        // 3. Draw Rooms (Simple Fill OR Custom Image)
         ROOMS.forEach((r: any) => {
-            // Floor
-            ctx.fillStyle = p[r.type || 'zone1'] || p.zone1;
-            ctx.fillRect(r.x, r.y, r.w, r.h);
+            // Wall Shadow (Outer)
+            ctx.fillStyle = 'rgba(0,0,0,0.3)';
+            ctx.fillRect(r.x + 4, r.y + 4, r.w, r.h);
 
-            // Wall borders
-            ctx.strokeStyle = p.wall;
-            ctx.lineWidth = 4;
-            ctx.strokeRect(r.x, r.y, r.w, r.h);
-
-            // Room Label (Subtle pixel text)
-            ctx.fillStyle = p.text || 'rgba(0,0,0,0.2)';
-            ctx.font = '14px "Microsoft YaHei", sans-serif'; // Bigger font for bigger map
-            ctx.fillText(r.label, r.x + 10, r.y + 25);
-        });
-
-        // Furniture (Enhanced Pixel Style)
-        FURNITURE.forEach((f: any) => {
-            // Shadow
-            ctx.fillStyle = 'rgba(0,0,0,0.15)';
-            ctx.fillRect(f.x + 3, f.y + 3, f.w, f.h);
-
-            // Base
-            ctx.fillStyle = f.color;
-            ctx.fillRect(f.x, f.y, f.w, f.h);
-
-            // Pixel Outline/Highlight effect
-            ctx.fillStyle = 'rgba(255,255,255,0.2)';
-            ctx.fillRect(f.x, f.y, f.w, 4); // Top highlight
-            ctx.fillStyle = 'rgba(0,0,0,0.2)';
-            ctx.fillRect(f.x, f.y + f.h - 4, f.w, 4); // Bottom shadow
-
-            // Detail drawing based on type
-            if (f.label.includes('床')) {
-                // Pillow & Blanket
-                ctx.fillStyle = '#fff';
-                ctx.fillRect(f.x + 5, f.y + 5, f.w - 10, 20); // Pillow
-                ctx.fillStyle = 'rgba(255,255,255,0.3)';
-                ctx.fillRect(f.x + 5, f.y + 30, f.w - 10, f.h - 35); // Blanket
+            // [新增] 尝试绘制自定义地板图片
+            // 类型强转，因为 constants.ts 是对象字面量可能未完全匹配接口
+            const floorImg = getAsset((r as any).imagePath);
+            if (floorImg) {
+                // 平铺模式
+                const ptrn = ctx.createPattern(floorImg, 'repeat');
+                if (ptrn) {
+                    ctx.fillStyle = ptrn;
+                    // 需要平移 pattern 到房间原点，不然纹理会从 (0,0) 开始对齐
+                    ctx.save();
+                    ctx.translate(r.x, r.y);
+                    ctx.fillRect(0, 0, r.w, r.h);
+                    ctx.restore();
+                } else {
+                    ctx.drawImage(floorImg, r.x, r.y, r.w, r.h); // 拉伸模式备选
+                }
+            } else {
+                // 回退到纯色
+                ctx.fillStyle = r.color;
+                ctx.fillRect(r.x, r.y, r.w, r.h);
             }
-            else if (f.label.includes('桌') || f.label.includes('台')) {
-                // Legs
+
+            // Walls
+            if (r.id !== 'park' && r.id !== 'street' && r.id !== 'lake') {
+                ctx.strokeStyle = p.wall;
+                ctx.lineWidth = 4; // 稍微变细一点边框
+                ctx.strokeRect(r.x, r.y, r.w, r.h);
+            }
+
+            // Room Label
+            if (r.label && r.id !== 'street') {
                 ctx.fillStyle = 'rgba(0,0,0,0.3)';
-                ctx.fillRect(f.x + 2, f.y + 2, 4, 4);
-                ctx.fillRect(f.x + f.w - 6, f.y + 2, 4, 4);
-                ctx.fillRect(f.x + 2, f.y + f.h - 6, 4, 4);
-                ctx.fillRect(f.x + f.w - 6, f.y + f.h - 6, 4, 4);
-            }
-            else if (f.label.includes('电脑')) {
-                ctx.fillStyle = '#000';
-                ctx.fillRect(f.x + 5, f.y + 5, f.w - 10, f.h - 15); // Screen off
-                if (Math.random() > 0.5) { // Flicker
-                    ctx.fillStyle = '#81ecec';
-                    ctx.fillRect(f.x + 7, f.y + 7, f.w - 14, f.h - 19); // Screen On
-                }
-            }
-            else if (f.label.includes('书架')) {
-                // Books
-                const colors = ['#e17055', '#0984e3', '#00b894', '#fdcb6e'];
-                for (let i = 0; i < f.w / 8; i++) {
-                    ctx.fillStyle = colors[i % colors.length];
-                    ctx.fillRect(f.x + 4 + i * 8, f.y + 5, 6, f.h - 10);
-                }
-            }
-
-            // Direction Indicator (Subtle)
-            ctx.fillStyle = p.furniture_dark || 'rgba(0,0,0,0.3)';
-            if (f.dir === 'up') ctx.fillRect(f.x, f.y, f.w, 4);
-            if (f.dir === 'down') ctx.fillRect(f.x, f.y + f.h - 4, f.w, 4);
-            if (f.dir === 'left') ctx.fillRect(f.x, f.y, 4, f.h);
-            if (f.dir === 'right') ctx.fillRect(f.x + f.w - 4, f.y, 4, f.h);
-
-            // Label
-            if (GameStore.time.hour > 8 && GameStore.time.hour < 20) {
-                ctx.fillStyle = 'rgba(0,0,0,0.4)';
-                ctx.font = '9px sans-serif';
-                ctx.textAlign = 'center';
-                ctx.fillText(f.label, f.x + f.w / 2, f.y + f.h / 2 + 3);
+                ctx.font = '12px "Microsoft YaHei", sans-serif';
+                ctx.fillText(r.label, r.x + 8, r.y + 20);
             }
         });
 
-        // Sims
+        // 4. Draw Furniture (Enhanced Pixel Style OR Custom Image)
+        FURNITURE.forEach((f: any) => {
+            const shadowColor = p.furniture_shadow || 'rgba(0,0,0,0.2)';
+
+            // Cast Shadow
+            ctx.fillStyle = shadowColor;
+            ctx.fillRect(f.x + 4, f.y + 4, f.w, f.h);
+
+            // [新增] 尝试绘制自定义家具图片
+            const furnImg = getAsset(f.imagePath);
+            if (furnImg) {
+                ctx.drawImage(furnImg, f.x, f.y, f.w, f.h);
+            } else {
+                // === 原有的几何绘制逻辑 (回退) ===
+
+                // Base Shape
+                ctx.fillStyle = f.color;
+                ctx.fillRect(f.x, f.y, f.w, f.h);
+
+                // Simple Bevel Effect (Highlight Top, Shadow Bottom)
+                ctx.fillStyle = 'rgba(255,255,255,0.2)';
+                ctx.fillRect(f.x, f.y, f.w, 3);
+                ctx.fillStyle = 'rgba(0,0,0,0.2)';
+                ctx.fillRect(f.x, f.y + f.h - 3, f.w, 3);
+
+                // Specific Details (Minimal)
+                if (f.label.includes('床')) {
+                    // Pillow
+                    ctx.fillStyle = '#fff';
+                    ctx.fillRect(f.x + 5, f.y + 5, f.w - 10, 20);
+                    // Blanket
+                    ctx.fillStyle = 'rgba(255,255,255,0.3)';
+                    ctx.fillRect(f.x + 5, f.y + 30, f.w - 10, f.h - 35);
+                }
+                else if (f.label.includes('电脑')) {
+                    ctx.fillStyle = '#000'; // Screen Off
+
+                    // 修复：使用时间而非随机数来控制闪烁，避免高频频闪
+                    // 呼吸灯效果：2秒周期，1.5秒亮，0.5秒灭
+                    const time = Date.now() % 2000;
+                    if (time < 1500) {
+                        ctx.fillStyle = '#81ecec'; // Screen On
+                    }
+
+                    ctx.fillRect(f.x + 5, f.y + 5, f.w - 10, f.h - 15);
+                }
+                else if (f.id === 'lake') {
+                    // Simple water effect
+                    ctx.fillStyle = 'rgba(255,255,255,0.2)';
+                    ctx.fillRect(f.x + 10, f.y + 10, f.w - 20, f.h - 20);
+                }
+                else if (f.utility === 'gardening') {
+                    // Flowers (Simple dots)
+                    ctx.fillStyle = '#ff7675';
+                    ctx.fillRect(f.x + f.w / 3, f.y + f.h / 3, 6, 6);
+                    ctx.fillStyle = '#fdcb6e';
+                    ctx.fillRect(f.x + f.w * 0.6, f.y + f.h * 0.6, 6, 6);
+                }
+
+                // Direction Indicator
+                ctx.fillStyle = 'rgba(0,0,0,0.3)';
+                const indSize = 4;
+                if (f.dir === 'up') ctx.fillRect(f.x, f.y, f.w, indSize);
+                if (f.dir === 'down') ctx.fillRect(f.x, f.y + f.h - indSize, f.w, indSize);
+                if (f.dir === 'left') ctx.fillRect(f.x, f.y, indSize, f.h);
+                if (f.dir === 'right') ctx.fillRect(f.x + f.w - indSize, f.y, indSize, f.h);
+            }
+
+            // [新功能] 家具名称显示
+            // 只有当鼠标悬停或非常接近时才显示
+            const dist = Math.sqrt(Math.pow(mouseWorldX - (f.x + f.w / 2), 2) + Math.pow(mouseWorldY - (f.y + f.h / 2), 2));
+            if (dist < 50) {
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+                ctx.fillRect(f.x, f.y - 14, ctx.measureText(f.label).width + 6, 14);
+                ctx.fillStyle = '#fff';
+                ctx.font = '10px "Microsoft YaHei", sans-serif';
+                ctx.fillText(f.label, f.x + 3, f.y - 3);
+            }
+        });
+
+        // 5. Draw Sims
         const renderSims = [...GameStore.sims].sort((a, b) => a.pos.y - b.pos.y);
         renderSims.forEach(sim => {
-            // Skip rendering if working (hidden inside desk ideally, but here just hidden)
             if (sim.action === 'working' && sim.pos.x < 0) return;
 
             ctx.save();
@@ -123,32 +171,38 @@ const GameCanvas: React.FC = () => {
 
             // Selection Marker
             if (GameStore.selectedSimId === sim.id) {
-                ctx.beginPath();
-                ctx.ellipse(0, 5, 16, 8, 0, 0, Math.PI * 2); // Bigger selection circle
                 ctx.fillStyle = 'rgba(57, 255, 20, 0.4)';
+                ctx.beginPath();
+                ctx.ellipse(0, 5, 12, 6, 0, 0, Math.PI * 2);
                 ctx.fill();
 
-                // Floating Arrow
+                // Arrow
                 ctx.fillStyle = '#39ff14';
-                const floatY = -60 + Math.sin(Date.now() / 200) * 3; // Higher arrow
+                const floatY = -55 + Math.sin(Date.now() / 200) * 3;
                 ctx.beginPath();
                 ctx.moveTo(0, floatY);
-                ctx.lineTo(-6, floatY - 10);
-                ctx.lineTo(6, floatY - 10);
+                ctx.lineTo(-5, floatY - 8);
+                ctx.lineTo(5, floatY - 8);
                 ctx.fill();
+            } else {
+                // Shadow
+                ctx.fillStyle = 'rgba(0,0,0,0.2)';
+                ctx.beginPath(); ctx.ellipse(0, 5, 10, 4, 0, 0, Math.PI * 2); ctx.fill();
             }
 
-            // Bigger Sims Visualization (Scale 1.5x approx)
             let w = 20;
             let h = 42;
 
-            // [新功能] 绘制裤子
+            // Pants
             const pantsImg = getAsset(sim.appearance.pants);
             if (pantsImg) {
                 ctx.drawImage(pantsImg, -w / 2, -h + 20, w, h / 2);
+            } else {
+                ctx.fillStyle = '#555';
+                ctx.fillRect(-w / 2, -h + 20, w, h / 2);
             }
 
-            // [新功能] 绘制上衣
+            // Clothes
             const clothesImg = getAsset(sim.appearance.clothes);
             if (clothesImg) {
                 ctx.drawImage(clothesImg, -w / 2, -h + 12, w, h / 2);
@@ -157,34 +211,29 @@ const GameCanvas: React.FC = () => {
                 ctx.fillRect(-w / 2, -h + 12, w, h - 14);
             }
 
-            // Shadow
-            ctx.fillStyle = 'rgba(0,0,0,0.2)';
-            ctx.beginPath(); ctx.ellipse(0, 0, 10, 4, 0, 0, Math.PI * 2); ctx.fill();
+            // Head
+            drawAvatarHead(ctx, 0, -h + 6, 13, sim);
 
             // Phone
             if (sim.action === 'phone') {
                 ctx.fillStyle = '#fff';
-                ctx.fillRect(6, -24, 5, 8);
+                ctx.fillRect(8, -22, 6, 9);
             }
-
-            // Head
-            drawAvatarHead(ctx, 0, -h + 6, 13, sim);
 
             // Bubble
             if (sim.bubble.timer > 0 && sim.bubble.text) {
-                ctx.font = '10px "Microsoft YaHei", sans-serif';
-                let width = ctx.measureText(sim.bubble.text).width + 8;
+                ctx.font = 'bold 10px "Microsoft YaHei", sans-serif';
+                let width = ctx.measureText(sim.bubble.text).width + 12;
                 let bg = '#fff';
-                let border = '#000';
-                let textC = '#000';
+                let border = '#2d3436';
+                let textC = '#2d3436';
 
-                if (sim.bubble.type === 'love') { bg = '#ffe6ef'; border = '#fd79a8'; textC = '#e84393'; }
-                else if (sim.bubble.type === 'ai') { bg = '#f0f0ff'; border = '#a29bfe'; textC = '#6c5ce7'; }
-                else if (sim.bubble.type === 'act') { bg = '#e6fffa'; border = '#55efc4'; textC = '#00b894'; }
-                else if (sim.bubble.type === 'bad') { bg = '#fff0f0'; border = '#ff7675'; textC = '#d63031'; }
-                else if (sim.bubble.type === 'money') { bg = '#fff3e0'; border = '#fdcb6e'; textC = '#e17055'; }
+                if (sim.bubble.type === 'love') { bg = '#fd79a8'; border = '#e84393'; textC = '#fff'; }
+                else if (sim.bubble.type === 'ai') { bg = '#a29bfe'; border = '#6c5ce7'; textC = '#fff'; }
+                else if (sim.bubble.type === 'act') { bg = '#55efc4'; border = '#00b894'; textC = '#000'; }
+                else if (sim.bubble.type === 'bad') { bg = '#ff7675'; border = '#d63031'; textC = '#fff'; }
+                else if (sim.bubble.type === 'money') { bg = '#ffeaa7'; border = '#fdcb6e'; textC = '#d35400'; }
 
-                // Bubble Tail
                 ctx.fillStyle = border;
                 ctx.beginPath();
                 ctx.moveTo(0, -h - 5);
@@ -192,16 +241,15 @@ const GameCanvas: React.FC = () => {
                 ctx.lineTo(4, -h - 15);
                 ctx.fill();
 
-                // Bubble Body
                 ctx.fillStyle = bg;
                 ctx.strokeStyle = border;
-                ctx.lineWidth = 1;
-                ctx.fillRect(-width / 2, -h - 35, width, 20);
-                ctx.strokeRect(-width / 2, -h - 35, width, 20);
+                ctx.lineWidth = 1.5;
+                ctx.fillRect(-width / 2, -h - 38, width, 24);
+                ctx.strokeRect(-width / 2, -h - 38, width, 24);
 
                 ctx.fillStyle = textC;
                 ctx.textAlign = 'center';
-                ctx.fillText(sim.bubble.text, 0, -h - 21);
+                ctx.fillText(sim.bubble.text, 0, -h - 22);
             }
             ctx.restore();
         });
@@ -209,16 +257,17 @@ const GameCanvas: React.FC = () => {
         // Particles
         for (let i = GameStore.particles.length - 1; i >= 0; i--) {
             let p = GameStore.particles[i];
-            p.y -= 0.5;
-            p.life -= 0.01;
+            p.y -= 0.6;
+            p.life -= 0.015;
             ctx.globalAlpha = Math.max(0, p.life);
-            ctx.font = '12px serif';
+            ctx.font = '14px serif';
             ctx.fillText('❤️', p.x, p.y);
             ctx.globalAlpha = 1.0;
             if (p.life <= 0) GameStore.particles.splice(i, 1);
         }
 
-        // Restore Camera Transform
+        // NO OVERLAY DRAWN HERE
+
         ctx.restore();
     };
 
@@ -237,36 +286,31 @@ const GameCanvas: React.FC = () => {
         return () => {
             if (requestRef.current) cancelAnimationFrame(requestRef.current);
         };
-    }, [camera]); // Re-bind if camera changes, though loop handles it.
+    }, [camera]);
 
-    // Mouse Event Handlers for Camera Dragging
+    // Mouse Controls
     const handleMouseDown = (e: React.MouseEvent) => {
-        // Middle Click (1) for Dragging
-        if (e.button === 1) {
-            e.preventDefault(); // Prevent default scroll/autoscroll
+        if (e.button === 1) { // Middle click drag
+            e.preventDefault();
             isDragging.current = true;
             lastMousePos.current = { x: e.clientX, y: e.clientY };
             return;
         }
 
-        // Left Click (0) for Selection
-        if (e.button === 0) {
+        if (e.button === 0) { // Left click select
             const canvas = canvasRef.current;
             if (!canvas) return;
 
             const rect = canvas.getBoundingClientRect();
-            // Calculate mouse position relative to canvas
             const mouseX = e.clientX - rect.left;
             const mouseY = e.clientY - rect.top;
-
-            // Convert Screen Coords to World Coords by ADDING camera offset
             const worldX = mouseX + camera.x;
             const worldY = mouseY + camera.y;
 
             let hit: string | null = null;
             for (let i = GameStore.sims.length - 1; i >= 0; i--) {
                 let s = GameStore.sims[i];
-                if (Math.abs(worldX - s.pos.x) < 30 && Math.abs(worldY - s.pos.y) < 60) {
+                if (Math.abs(worldX - s.pos.x) < 30 && Math.abs(worldY - (s.pos.y - 20)) < 40) {
                     hit = s.id; break;
                 }
             }
@@ -276,28 +320,22 @@ const GameCanvas: React.FC = () => {
     };
 
     const handleMouseMove = (e: React.MouseEvent) => {
+        // Always track mouse for hover effects even if not dragging
+        lastMousePos.current = { x: e.clientX, y: e.clientY };
+
         if (isDragging.current) {
-            const dx = e.clientX - lastMousePos.current.x;
-            const dy = e.clientY - lastMousePos.current.y;
-
-            // Update camera position (inverted drag)
-            setCamera(prev => ({
-                x: prev.x - dx,
-                y: prev.y - dy
-            }));
-
-            lastMousePos.current = { x: e.clientX, y: e.clientY };
+            // React synthetic events have movementX/Y
+            const moveX = e.movementX;
+            const moveY = e.movementY;
+            setCamera(prev => ({ x: prev.x - moveX, y: prev.y - moveY }));
         }
     };
 
-    const handleMouseUp = () => {
-        isDragging.current = false;
-    };
+    const handleMouseUp = () => { isDragging.current = false; };
 
     return (
         <canvas
             ref={canvasRef}
-            // Use window size or container size for viewport
             width={window.innerWidth}
             height={window.innerHeight}
             className="block bg-[#121212] cursor-crosshair"
@@ -305,7 +343,6 @@ const GameCanvas: React.FC = () => {
             onMouseMove={handleMouseMove}
             onMouseUp={handleMouseUp}
             onMouseLeave={handleMouseUp}
-        // Removed onContextMenu preventing default right click behavior since we don't use right click anymore
         />
     );
 };

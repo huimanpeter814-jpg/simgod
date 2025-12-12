@@ -18,6 +18,7 @@ export interface Furniture {
   reserved?: string;
   cost?: number; // Cost to use this furniture
   tier?: string; // For cinema/restaurant tiers
+  imagePath?: string;
 }
 
 export interface Needs {

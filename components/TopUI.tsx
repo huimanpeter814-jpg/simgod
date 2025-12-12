@@ -50,9 +50,7 @@ const TopUI: React.FC = () => {
             <span className="w-2 h-2 rounded-full bg-blue-400"></span>
             Pop: {pop}
         </div>
-        <div className="bg-black/60 backdrop-blur-sm px-3 py-2 rounded-full border border-ai/20 text-xs text-ai font-bold flex items-center gap-2">
-            <span>✨ Gemini Live</span>
-        </div>
+        
       </div>
     </div>
   );

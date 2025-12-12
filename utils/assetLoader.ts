@@ -3,20 +3,22 @@
 
 const imageCache: Record<string, HTMLImageElement> = {};
 
-// 基础路径，根据你的 public 目录结构调整
-const BASE_PATH = '/assets/';
+// 修复：由于 constants.ts 中生成的路径已经包含了 /assets/ 前缀（例如 /assets/face/face01.png）
+// 这里不需要再设置 BASE_PATH，否则会导致路径重复 (如 /assets//assets/...)
+const BASE_PATH = '';
 
 export const loadImages = (sources: string[]) => {
     sources.forEach(src => {
         if (!imageCache[src]) {
             const img = new Image();
+            // 直接使用传入的完整路径
             img.src = `${BASE_PATH}${src}`;
+
             img.onload = () => {
-                console.log(`Loaded asset: ${src}`);
+                console.log(`[AssetLoader] Loaded: ${src}`);
             };
-            img.onerror = () => {
-                console.warn(`Failed to load asset: ${src}`);
-                // 可以在这里标记为失败，后续渲染时跳过
+            img.onerror = (e) => {
+                console.warn(`[AssetLoader] Failed to load: ${src}`, e);
             };
             imageCache[src] = img;
         }

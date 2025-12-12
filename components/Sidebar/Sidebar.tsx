@@ -44,15 +44,27 @@ const GameOverlay: React.FC = () => {
             {/* Floating Log Panel (Self-managed positioning) */}
             <LogPanel />
 
-            {/* Bottom Right: Spawn Button with Text */}
-            <div className="absolute right-6 bottom-6 pointer-events-auto">
+            {/* Bottom Right: Spawn Button - Made much more visible */}
+            <div className="absolute right-8 bottom-8 pointer-events-auto">
                 <button
                     onClick={handleSpawn}
-                    className="group flex items-center gap-2 bg-success text-[#121212] px-6 py-3 rounded-full shadow-[0_4px_0_#008c70] border-2 border-transparent hover:border-white/50 active:translate-y-1 active:shadow-none transition-all"
-                    title="Spawn Citizen"
+                    className="
+                        group flex items-center gap-3 
+                        bg-[#00b894] hover:bg-[#55efc4] text-[#121212] 
+                        pl-5 pr-8 py-4 rounded-full 
+                        shadow-[0_0_20px_rgba(0,184,148,0.6)] hover:shadow-[0_0_30px_rgba(85,239,196,0.8)]
+                        border-2 border-[#fff]/20 hover:border-white
+                        transition-all duration-300 transform hover:scale-105 active:scale-95
+                    "
+                    title="add random new sim"
                 >
-                    <span className="text-xl font-black leading-none group-hover:rotate-90 transition-transform">+</span>
-                    <span className="font-inter text-xs tracking-wider">New</span>
+                    <div className="bg-black/20 w-10 h-10 rounded-full flex items-center justify-center text-2xl font-black group-hover:rotate-90 transition-transform duration-300">
+                        +
+                    </div>
+                    <div className="flex flex-col items-start">
+                        <span className="font-pixel text-xs font-bold opacity-80">SYSTEM</span>
+                        <span className="font-inter text-lg font-black tracking-wide leading-none">ADD SIM</span>
+                    </div>
                 </button>
             </div>
         </div>

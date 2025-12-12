@@ -92,7 +92,15 @@ const Inspector: React.FC<InspectorProps> = ({ selectedId, sims }) => {
     const genderIcon = sim.gender === 'M' ? '♂' : '♀';
     const genderColor = sim.gender === 'M' ? 'text-blue-400' : 'text-pink-400';
 
-    const statusText = STATUS_MAP[sim.action] || sim.action;
+    let statusText = STATUS_MAP[sim.action] || sim.action;
+
+    // 修复：针对 'using' 状态，显示更具体的交互对象名称
+    if (sim.action === 'using' && sim.interactionTarget) {
+        // 从 interactionTarget 中提取标签，去掉 id 后缀 (如 "gym_run_1" -> "跑步机")
+        // 但这里我们直接用 furniture.label，它已经是中文名了
+        statusText = `使用 ${sim.interactionTarget.label}`;
+    }
+
     // Prefer bubble text if it's an action description and recent
     const displayStatus = (sim.bubble.type === 'act' && sim.bubble.text && sim.bubble.timer > 0)
         ? sim.bubble.text

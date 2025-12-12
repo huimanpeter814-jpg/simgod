@@ -43,7 +43,7 @@ export function drawAvatarHead(ctx: CanvasRenderingContext2D, x: number, y: numb
     if (hairImg) {
         // 发型图片通常稍微大一点或位置调整，视图片素材而定
         // 假设素材是完整的头部发型覆盖
-        ctx.drawImage(hairImg, x - s, y - s - (s * 0.2), s * 2, s * 2);
+        ctx.drawImage(hairImg, x - s-(s*0.25), y - s - (s * 0.3), s * 2.5, s * 2.5);
     } else {
         // [回退] 默认绘制逻辑
         ctx.fillStyle = sim.hairColor;

@@ -170,39 +170,8 @@ export class Sim {
             return;
         }
 
-        const affordable = ITEMS.filter(item => item.cost <= this.dailyBudget && item.cost <= this.money);
-        let bestItem = null;
-        let maxScore = 0;
-
-        affordable.forEach(item => {
-            let score = 0;
-            if (item.needs) {
-                if (item.needs.hunger && this.needs.hunger < 60) score += item.needs.hunger * 2;
-                if (item.needs.fun && this.needs.fun < 60) score += item.needs.fun * 2;
-                if (item.needs.energy && this.needs.energy < 50 && item.needs.energy > 0) score += 20;
-            }
-            if (item.skill) {
-                if (this.lifeGoal.includes('博学') || this.lifeGoal.includes('富翁')) score += 30;
-                if (this.mbti.includes('N') && item.skill === 'logic') score += 20;
-                if (this.zodiac.element === 'fire' && item.skill === 'athletics') score += 20;
-            }
-            if (item.trigger === 'rich_hungry' && this.money > 5000) score += 50;
-            if (item.trigger === 'addicted' && this.mbti.includes('P') && this.needs.fun < 30) score += 100;
-            if (item.trigger === 'love' && this.hasBuff('in_love')) score += 80;
-
-            score += Math.random() * 20;
-
-            if (score > 50 && score > maxScore) {
-                maxScore = score;
-                bestItem = item;
-            }
-        });
-
-        if (bestItem) {
-            if (['drink', 'book'].includes(bestItem.id)) {
-                this.buyItem(bestItem);
-            }
-        }
+        // 修复：只进行简单的预算判断或自动购买非实体服务
+        // 实体物品（书、饮料）需要去商店购买，不在这里自动触发
     }
 
     buyItem(item: any) {
@@ -393,7 +362,9 @@ export class Sim {
                 this.action = 'moving';
             }
         }
-        if (this.bubble.timer > 0) this.bubble.timer -= dt;
+
+        // --- 修复：气泡计时器使用帧数递减，而不是游戏时间 dt ---
+        if (this.bubble.timer > 0) this.bubble.timer -= 1;
     }
 
     checkSchedule() {
@@ -558,8 +529,14 @@ export class Sim {
 
         let candidates = FURNITURE.filter(f => {
             if (f.utility === utility) return true;
-            if (utility === 'fun' && ['fun', 'comfort', 'cinema_2d', 'cinema_3d', 'cinema_imax'].includes(f.utility)) return true;
-            if (utility === 'hunger' && ['hunger', 'eat_out'].includes(f.utility)) return true;
+            if (utility === 'fun') {
+                // 修复：当需求是娱乐时，也将买书(buy_book)作为一种选择，这样市民会去书架
+                return ['fun', 'comfort', 'cinema_2d', 'cinema_3d', 'cinema_imax', 'buy_book'].includes(f.utility);
+            }
+            if (utility === 'hunger') {
+                // 修复：当需求是饥饿时，将买饮料(buy_drink)作为选择，这样市民会去街道
+                return ['hunger', 'eat_out', 'buy_drink'].includes(f.utility);
+            }
             if (type.startsWith('skill_')) return false;
             return false;
         });
