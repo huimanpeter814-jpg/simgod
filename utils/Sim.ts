@@ -1,7 +1,10 @@
 ﻿import { CONFIG, BASE_DECAY, LIFE_GOALS, MBTI_TYPES, SURNAMES, GIVEN_NAMES, ZODIACS, ELE_COMP, FURNITURE, SOCIAL_TYPES, JOBS, BUFFS, ITEMS, ASSET_CONFIG } from '../constants';
 import { Vector2, SimData, Job, Buff, SimAppearance } from '../types';
-import { GameStore } from './simulation'; // 引用 Store
-import { minutes, getJobCapacity } from './simulationHelpers'; // 引用工具
+import { GameStore } from './simulation';
+import { minutes, getJobCapacity } from './simulationHelpers';
+
+// 定义社交行为对象的类型
+type SocialType = typeof SOCIAL_TYPES[number];
 
 export class Sim {
     id: string;
@@ -13,7 +16,9 @@ export class Sim {
     skinColor: string;
     hairColor: string;
     clothesColor: string;
+
     appearance: SimAppearance;
+
     mbti: string;
     zodiac: any;
     age: number;
@@ -43,7 +48,8 @@ export class Sim {
     bubble: { text: string | null; timer: number; type: string } = { text: null, timer: 0, type: 'normal' };
 
     constructor(x?: number, y?: number) {
-        this.id = Math.random().toString(36).substr(2, 9);
+        // [修复] 使用 substring 替代已弃用的 substr
+        this.id = Math.random().toString(36).substring(2, 11);
         this.pos = {
             x: x ?? (50 + Math.random() * (CONFIG.CANVAS_W - 100)),
             y: y ?? (50 + Math.random() * (CONFIG.CANVAS_H - 100))
@@ -54,6 +60,7 @@ export class Sim {
         this.skinColor = CONFIG.COLORS.skin[Math.floor(Math.random() * CONFIG.COLORS.skin.length)];
         this.hairColor = CONFIG.COLORS.hair[Math.floor(Math.random() * CONFIG.COLORS.hair.length)];
         this.clothesColor = CONFIG.COLORS.clothes[Math.floor(Math.random() * CONFIG.COLORS.clothes.length)];
+
         this.appearance = {
             face: ASSET_CONFIG.face.length > 0 ? ASSET_CONFIG.face[Math.floor(Math.random() * ASSET_CONFIG.face.length)] : '',
             hair: ASSET_CONFIG.hair.length > 0 ? ASSET_CONFIG.hair[Math.floor(Math.random() * ASSET_CONFIG.hair.length)] : '',
@@ -170,8 +177,39 @@ export class Sim {
             return;
         }
 
-        // 修复：只进行简单的预算判断或自动购买非实体服务
-        // 实体物品（书、饮料）需要去商店购买，不在这里自动触发
+        const affordable = ITEMS.filter(item => item.cost <= this.dailyBudget && item.cost <= this.money);
+        let bestItem: any = null;
+        let maxScore = 0;
+
+        affordable.forEach(item => {
+            let score = 0;
+            if (item.needs) {
+                if (item.needs.hunger && this.needs.hunger < 60) score += item.needs.hunger * 2;
+                if (item.needs.fun && this.needs.fun < 60) score += item.needs.fun * 2;
+                if (item.needs.energy && this.needs.energy < 50 && item.needs.energy > 0) score += 20;
+            }
+            if (item.skill) {
+                if (this.lifeGoal.includes('博学') || this.lifeGoal.includes('富翁')) score += 30;
+                if (this.mbti.includes('N') && item.skill === 'logic') score += 20;
+                if (this.zodiac.element === 'fire' && item.skill === 'athletics') score += 20;
+            }
+            if (item.trigger === 'rich_hungry' && this.money > 5000) score += 50;
+            if (item.trigger === 'addicted' && this.mbti.includes('P') && this.needs.fun < 30) score += 100;
+            if (item.trigger === 'love' && this.hasBuff('in_love')) score += 80;
+
+            score += Math.random() * 20;
+
+            if (score > 50 && score > maxScore) {
+                maxScore = score;
+                bestItem = item;
+            }
+        });
+
+        if (bestItem) {
+            if (['drink', 'book'].includes(bestItem.id)) {
+                this.buyItem(bestItem);
+            }
+        }
     }
 
     buyItem(item: any) {
@@ -191,7 +229,7 @@ export class Sim {
             this.say("📚 涨知识", 'act');
         }
 
-        if (item.buff) this.addBuff(BUFFS[item.buff]);
+        if (item.buff) this.addBuff(BUFFS[item.buff as keyof typeof BUFFS]);
 
         let logSuffix = "";
         if (item.rel) {
@@ -326,22 +364,8 @@ export class Sim {
 
         if (this.target) {
             const dist = Math.sqrt(Math.pow(this.pos.x - this.target.x, 2) + Math.pow(this.pos.y - this.target.y, 2));
-
-            // 判断停止距离：如果是与人交互，则保留一定距离（如40），避免重合
-            let stopThreshold = 8;
-            let isHumanInteraction = this.interactionTarget && this.interactionTarget.type === 'human';
-
-            if (isHumanInteraction) {
-                stopThreshold = 40; // 社交距离
-            }
-
-            if (dist < stopThreshold) {
-                // 如果是物品/家具交互，通常需要精确到达位置（吸附）
-                // 如果是人际交互，不需要重合，保留位置即可
-                if (!isHumanInteraction) {
-                    this.pos = this.target;
-                }
-
+            if (dist < 8) {
+                this.pos = this.target;
                 this.target = null;
                 this.startInteraction();
             } else {
@@ -362,9 +386,7 @@ export class Sim {
                 this.action = 'moving';
             }
         }
-
-        // --- 修复：气泡计时器使用帧数递减，而不是游戏时间 dt ---
-        if (this.bubble.timer > 0) this.bubble.timer -= 1;
+        if (this.bubble.timer > 0) this.bubble.timer -= dt;
     }
 
     checkSchedule() {
@@ -529,14 +551,8 @@ export class Sim {
 
         let candidates = FURNITURE.filter(f => {
             if (f.utility === utility) return true;
-            if (utility === 'fun') {
-                // 修复：当需求是娱乐时，也将买书(buy_book)作为一种选择，这样市民会去书架
-                return ['fun', 'comfort', 'cinema_2d', 'cinema_3d', 'cinema_imax', 'buy_book'].includes(f.utility);
-            }
-            if (utility === 'hunger') {
-                // 修复：当需求是饥饿时，将买饮料(buy_drink)作为选择，这样市民会去街道
-                return ['hunger', 'eat_out', 'buy_drink'].includes(f.utility);
-            }
+            if (utility === 'fun' && ['fun', 'comfort', 'cinema_2d', 'cinema_3d', 'cinema_imax'].includes(f.utility)) return true;
+            if (utility === 'hunger' && ['hunger', 'eat_out'].includes(f.utility)) return true;
             if (type.startsWith('skill_')) return false;
             return false;
         });
@@ -744,8 +760,8 @@ export class Sim {
         if (r > 20) return '好感';
         if (r > 10) return '心动';
         if (r >= 0) return '无感';
-        if (r > -30) return '嫌弃';
-        if (r > -60) return '反感';
+        if (r > -30) return '不吸引';
+        if (r > -60) return '嫌弃';
         return '厌恶';
     }
 
@@ -777,7 +793,8 @@ export class Sim {
         let rel = this.relationships[partner.id];
         let oldLabel = this.getRelLabel(rel);
 
-        let availableActions = SOCIAL_TYPES.filter(type => {
+        // [修复] 显式指定类型，解决 TS 隐式 any 或 never 问题
+        let availableActions: SocialType[] = SOCIAL_TYPES.filter(type => {
             if (type.type === 'friendship') {
                 return rel.friendship >= type.minVal && rel.friendship <= type.maxVal;
             } else if (type.type === 'romance') {
@@ -805,8 +822,10 @@ export class Sim {
 
         if (availableActions.length === 0) availableActions = [SOCIAL_TYPES[0]];
 
-        let romanceActions = availableActions.filter(t => t.type === 'romance');
-        let finalType;
+        let romanceActions: SocialType[] = availableActions.filter(t => t.type === 'romance');
+
+        // [修复] 显式初始化
+        let finalType: SocialType = availableActions[0];
 
         let romanticProb = 0.4;
         if (this.mbti.includes('F')) romanticProb += 0.2;
@@ -895,7 +914,7 @@ export class Sim {
     getDefaultDialogue(typeId: string) {
         if (typeId === 'chat') return "最近好吗？";
         if (typeId === 'joke') return "哈哈哈哈！";
-        if (typeId === 'argue') return "你走开！";
+        if (typeId === 'argue') return "我不同意！";
         if (typeId === 'gossip') return "你听说了吗？";
         if (typeId === 'flirt') return "你真迷人~";
         if (typeId === 'kiss') return "Mua!";
@@ -904,7 +923,7 @@ export class Sim {
         if (typeId === 'hug') return "抱抱~";
         if (typeId === 'propose') return "嫁给我吧！";
         if (typeId === 'greet') return "你好！";
-        return "~";
+        return "...";
     }
 
     updateRelationship(target: Sim, type: string, delta: number) {

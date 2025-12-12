@@ -1,3 +1,4 @@
+/// <reference types="vite/client" />
 import { Furniture } from './types';
 
 // 1. 扫描文件 (支持 png, jpg, jpeg, webp)
@@ -252,7 +253,7 @@ export const SOCIAL_TYPES = [
     { id: 'confess', label: '表白', val: 30, type: 'romance', minVal: 40, maxVal: 100, logType: 'love', special: 'confess' },
     { id: 'propose', label: '求婚', val: 50, type: 'romance', minVal: 90, maxVal: 100, logType: 'love', special: 'propose' },
     { id: 'breakup', label: '分手', val: -50, type: 'romance', minVal: -100, maxVal: -60, logType: 'bad', special: 'breakup' },
-    { id: 'argue', label: '争吵', val: -15, type: 'friendship', minVal: -100, maxVal: 100, logType: 'bad', id: 'argue' }
+    { id: 'argue', label: '争吵', val: -15, type: 'friendship', minVal: -100, maxVal: 100, logType: 'bad' }
 ];
 
 export const BASE_DECAY = {
