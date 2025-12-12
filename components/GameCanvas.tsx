@@ -3,6 +3,8 @@ import { CONFIG, ROOMS, FURNITURE } from '../constants';
 import { GameStore, gameLoopStep, getActivePalette, drawAvatarHead } from '../utils/simulation';
 import { getAsset } from '../utils/assetLoader';
 
+const MS_PER_UPDATE = 1000 / 30; // 30 Ticks Per Second (Fixed Logic Rate)
+
 const GameCanvas: React.FC = () => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const requestRef = useRef<number | null>(null);
@@ -12,7 +14,11 @@ const GameCanvas: React.FC = () => {
     const isDragging = useRef(false);
     const lastMousePos = useRef({ x: 0, y: 0 });
 
-    const draw = (ctx: CanvasRenderingContext2D) => {
+    // Game Loop State
+    const lastTimeRef = useRef<number>(0);
+    const lagRef = useRef<number>(0);
+
+    const draw = (ctx: CanvasRenderingContext2D, alpha: number) => {
         // Ensure pixel art look
         ctx.imageSmoothingEnabled = false;
 
@@ -164,10 +170,18 @@ const GameCanvas: React.FC = () => {
         // 5. Draw Sims
         const renderSims = [...GameStore.sims].sort((a, b) => a.pos.y - b.pos.y);
         renderSims.forEach(sim => {
-            if (sim.action === 'working' && sim.pos.x < 0) return;
+            // [Interpolation Logic]
+            // 如果存在 prevPos，则进行线性插值，否则直接使用 pos
+            const prevX = sim.prevPos ? sim.prevPos.x : sim.pos.x;
+            const prevY = sim.prevPos ? sim.prevPos.y : sim.pos.y;
+            
+            const interpX = prevX + (sim.pos.x - prevX) * alpha;
+            const interpY = prevY + (sim.pos.y - prevY) * alpha;
+
+            if (sim.action === 'working' && interpX < 0) return;
 
             ctx.save();
-            ctx.translate(sim.pos.x, sim.pos.y);
+            ctx.translate(interpX, interpY);
 
             // Selection Marker
             if (GameStore.selectedSimId === sim.id) {
@@ -266,17 +280,33 @@ const GameCanvas: React.FC = () => {
             if (p.life <= 0) GameStore.particles.splice(i, 1);
         }
 
-        // NO OVERLAY DRAWN HERE
-
         ctx.restore();
     };
 
-    const animate = () => {
-        gameLoopStep();
+    // Fixed Timestep Loop
+    const animate = (timestamp: number) => {
+        if (!lastTimeRef.current) lastTimeRef.current = timestamp;
+        const elapsed = timestamp - lastTimeRef.current;
+        lastTimeRef.current = timestamp;
+
+        lagRef.current += elapsed;
+
+        // Prevent spiral of death (if logic takes too long, cap it)
+        if (lagRef.current > 1000) lagRef.current = 1000;
+
+        // Update Logic in fixed steps
+        while (lagRef.current >= MS_PER_UPDATE) {
+            gameLoopStep();
+            lagRef.current -= MS_PER_UPDATE;
+        }
+
+        // Calculate interpolation alpha (0.0 to 1.0)
+        const alpha = lagRef.current / MS_PER_UPDATE;
+
         const canvas = canvasRef.current;
         if (canvas) {
             const ctx = canvas.getContext('2d');
-            if (ctx) draw(ctx);
+            if (ctx) draw(ctx, alpha);
         }
         requestRef.current = requestAnimationFrame(animate);
     };
@@ -286,7 +316,7 @@ const GameCanvas: React.FC = () => {
         return () => {
             if (requestRef.current) cancelAnimationFrame(requestRef.current);
         };
-    }, [camera]);
+    }, [camera]); // Re-bind if camera changes, though refs handle logic
 
     // Mouse Controls
     const handleMouseDown = (e: React.MouseEvent) => {

@@ -1,61 +1,82 @@
-﻿import { CONFIG, BASE_DECAY, LIFE_GOALS, MBTI_TYPES, SURNAMES, GIVEN_NAMES, ZODIACS, ELE_COMP, FURNITURE, SOCIAL_TYPES, JOBS, BUFFS, ITEMS, ASSET_CONFIG } from '../constants';
-import { Vector2, SimData, Job, Buff, SimAppearance } from '../types';
+﻿import { CONFIG, BASE_DECAY, LIFE_GOALS, MBTI_TYPES, SURNAMES, GIVEN_NAMES, ZODIACS, JOBS, BUFFS, ITEMS, ASSET_CONFIG, FURNITURE } from '../constants';
+import { Vector2, Job, Buff, SimAppearance } from '../types';
 import { GameStore } from './simulation';
 import { minutes, getJobCapacity } from './simulationHelpers';
+import { SocialLogic } from './logic/social';
+import { DecisionLogic } from './logic/decision';
 
-// 定义社交行为对象的类型
-type SocialType = typeof SOCIAL_TYPES[number];
+// [New] 定义各需求从 0 恢复到 100 所需的标准游戏分钟数
+const RESTORE_TIMES: Record<string, number> = {
+    bladder: 15,      // 上厕所很快
+    hygiene: 25,      // 洗澡稍慢
+    hunger: 45,       // 吃饭适中
+    energy_sleep: 420,// 睡觉需要 7 小时
+    energy_nap: 60,   // 小憩 1 小时
+    fun: 90,          // 娱乐 1.5 小时
+    social: 60,       // 社交 1 小时
+    default: 60
+};
 
 export class Sim {
+    // === 基础属性 ===
     id: string;
     pos: Vector2;
+    prevPos: Vector2; 
     target: Vector2 | null = null;
     speed: number;
     gender: 'M' | 'F';
     name: string;
+    
+    // === 外观 ===
     skinColor: string;
     hairColor: string;
     clothesColor: string;
-
     appearance: SimAppearance;
 
+    // === 性格与身份 ===
     mbti: string;
     zodiac: any;
     age: number;
     lifeGoal: string;
     orientation: string;
     faithfulness: number;
+
+    // === 状态 ===
     needs: any;
     skills: any;
     relationships: any;
-
+    buffs: Buff[];
+    mood: number;
+    
+    // === 经济与职业 ===
     money: number;
     dailyBudget: number;
     workPerformance: number;
     job: Job;
     dailyExpense: number;
 
-    buffs: Buff[];
-    mood: number;
-
+    // === 内部系数 ===
     metabolism: any;
     skillModifiers: Record<string, number>;
     socialModifier: number;
 
+    // === 行为控制 ===
     action: string;
     actionTimer: number;
     interactionTarget: any = null;
     bubble: { text: string | null; timer: number; type: string } = { text: null, timer: 0, type: 'normal' };
 
     constructor(x?: number, y?: number) {
-        // [修复] 使用 substring 替代已弃用的 substr
         this.id = Math.random().toString(36).substring(2, 11);
         this.pos = {
             x: x ?? (50 + Math.random() * (CONFIG.CANVAS_W - 100)),
             y: y ?? (50 + Math.random() * (CONFIG.CANVAS_H - 100))
         };
+        this.prevPos = { ...this.pos }; 
+        
         this.speed = (4.0 + Math.random() * 1.5) * 1.5;
         this.gender = Math.random() > 0.5 ? 'M' : 'F';
+        
         this.name = this.generateName();
         this.skinColor = CONFIG.COLORS.skin[Math.floor(Math.random() * CONFIG.COLORS.skin.length)];
         this.hairColor = CONFIG.COLORS.hair[Math.floor(Math.random() * CONFIG.COLORS.hair.length)];
@@ -86,6 +107,7 @@ export class Sim {
 
         this.money = 2000 + Math.floor(Math.random() * 3000);
 
+        // Job Init Logic
         const validJobs = JOBS.filter(j => {
             if (j.id === 'unemployed') return true;
             const capacity = getJobCapacity(j);
@@ -237,7 +259,7 @@ export class Sim {
             if (loverId) {
                 const lover = GameStore.sims.find(s => s.id === loverId);
                 if (lover) {
-                    lover.updateRelationship(this, 'romance', 10);
+                    SocialLogic.updateRelationship(lover, this, 'romance', 10);
                     lover.needs.fun = Math.min(100, lover.needs.fun + 20);
                     logSuffix = ` (送给 ${lover.name})`;
                 }
@@ -249,6 +271,7 @@ export class Sim {
     }
 
     update(dt: number, minuteChanged: boolean) {
+        this.prevPos = { ...this.pos };
         const f = 0.0008 * dt;
 
         if (minuteChanged) {
@@ -258,6 +281,7 @@ export class Sim {
         this.checkSchedule();
         this.updateMood();
 
+        // 1. 自然衰减
         if (this.action !== 'sleeping') this.needs.energy -= BASE_DECAY.energy * this.metabolism.energy * f;
         if (this.action !== 'eating') this.needs.hunger -= BASE_DECAY.hunger * this.metabolism.hunger * f;
         if (this.action !== 'watching_movie') this.needs.fun -= BASE_DECAY.fun * this.metabolism.fun * f;
@@ -265,103 +289,101 @@ export class Sim {
         this.needs.hygiene -= BASE_DECAY.hygiene * this.metabolism.hygiene * f;
         if (this.action !== 'talking' && this.action !== 'watching_movie') this.needs.social -= BASE_DECAY.social * this.metabolism.social * f;
 
-        const restoreRate = 2.5 * f;
+        // 2. 行为恢复: 核心修复逻辑
+        const getRate = (mins: number) => (100 / (mins * 60)) * dt;
+
         if (this.action === 'working') {
             this.needs.energy -= BASE_DECAY.energy * 0.5 * f;
             this.needs.fun -= BASE_DECAY.fun * 0.8 * f;
-
-            const autoRefillRate = restoreRate * 2;
-            if (this.needs.hunger < 30) this.needs.hunger += autoRefillRate;
-            if (this.needs.bladder < 30) this.needs.bladder += autoRefillRate;
-            if (this.needs.hygiene < 30) this.needs.hygiene += autoRefillRate;
-            if (this.needs.social < 30) this.needs.social += autoRefillRate;
-
+            // 缓慢恢复以免在工作中饿死
+            const slowRefill = getRate(240); 
+            if (this.needs.hunger < 30) this.needs.hunger += slowRefill;
+            if (this.needs.bladder < 30) this.needs.bladder += slowRefill;
+            if (this.needs.hygiene < 30) this.needs.hygiene += slowRefill;
+            if (this.needs.social < 30) this.needs.social += slowRefill;
+            
             if (this.interactionTarget) this.pos = { ...this.interactionTarget };
         }
         else if (this.action === 'sleeping') {
-            let rate = (100 / minutes(480)) * dt;
+            let rate = getRate(RESTORE_TIMES.energy_sleep);
             if (this.hasBuff('well_rested')) rate *= 1.2;
             this.needs.energy += rate;
-
-            if (this.needs.energy >= 100) {
-                this.finishAction();
-            }
+            if (this.needs.energy >= 100) this.finishAction();
         }
-        else if (this.action === 'eating') this.needs.hunger += restoreRate * 5;
-        else if (this.action === 'talking') this.needs.social += restoreRate;
+        else if (this.action === 'eating') {
+            this.needs.hunger += getRate(RESTORE_TIMES.hunger);
+            if (this.needs.hunger >= 100) this.finishAction();
+        }
+        else if (this.action === 'talking') {
+            this.needs.social += getRate(RESTORE_TIMES.social);
+        }
         else if (this.action === 'watching_movie') {
-            this.needs.fun += restoreRate * 3;
-            this.needs.energy -= restoreRate * 0.1;
+            this.needs.fun += getRate(120);
+            this.needs.energy -= getRate(600);
             const loverId = Object.keys(this.relationships).find(id => this.relationships[id].isLover);
             if (loverId) {
                 const lover = GameStore.sims.find(s => s.id === loverId);
                 if (lover && lover.action === 'watching_movie') {
-                    this.needs.social += restoreRate * 2;
+                    this.needs.social += getRate(60);
                 }
             }
         }
         else if (this.action === 'phone') {
-            this.needs.fun += restoreRate * 0.8;
-            this.needs.social += restoreRate * 0.1;
+            this.needs.fun += getRate(180);
+            this.needs.social += getRate(240);
         }
         else if (this.action === 'using' && this.interactionTarget) {
             const u = this.interactionTarget.utility;
-            let rate = restoreRate;
-
+            
             if (u === 'gym_run' || u === 'gym_yoga') {
-                this.skills.athletics += 0.08 * f;
-                this.needs.energy -= rate * 2;
-                this.needs.hygiene -= rate * 0.5;
+               this.skills.athletics += 0.08 * f;
+               this.needs.energy -= getRate(120);
+               this.needs.hygiene -= getRate(240);
             }
             else if (u === 'gardening') {
                 this.skills.gardening += 0.05 * f;
-                this.needs.fun += rate;
-                this.needs.energy -= rate;
+                this.needs.fun += getRate(180);
+                this.needs.energy -= getRate(240);
             }
             else if (u === 'fishing') {
                 this.skills.fishing += 0.05 * f;
-                this.needs.fun += rate * 0.8;
+                this.needs.fun += getRate(180);
             }
             else if (u === 'cooking') {
                 this.skills.cooking += 0.05 * f;
             }
             else {
-                if (u === 'bladder' || u === 'hygiene') rate *= 6.0;
-                if (this.needs[u] !== undefined) this.needs[u] += rate;
-
-                if (u && u.startsWith('skill_')) {
-                    let skill = u.replace('skill_', '');
-                    let modifier = this.skillModifiers[skill] || 1.0;
-                    if (this.mood > 90) modifier *= 1.2;
-                    this.skills[skill] = Math.min(100, this.skills[skill] + 0.05 * f * modifier);
-                    this.needs.fun += rate * 0.5;
-                    this.needs.energy -= rate * 0.2;
+                let time = RESTORE_TIMES[u] || RESTORE_TIMES.default;
+                
+                if (u === 'energy' && (this.interactionTarget.label.includes('沙发') || this.interactionTarget.label.includes('长椅'))) {
+                    time = RESTORE_TIMES.energy_nap;
                 }
 
-                if (this.interactionTarget.label.includes('沙发') || this.interactionTarget.label.includes('长椅')) {
-                    this.needs.energy += restoreRate * 0.5;
-                    this.needs.comfort = 100;
-                    if (this.actionTimer > minutes(30) && Math.random() < 0.005) {
-                        this.say("📱...", 'normal');
-                        this.action = 'phone';
-                    }
+                if (this.needs[u] !== undefined) {
+                    this.needs[u] += getRate(time);
+                }
+                
+                if (time === RESTORE_TIMES.energy_nap) {
+                     this.needs.comfort = 100;
                 }
             }
         }
 
+        // 3. 限制范围与结束检查
         for (let k in this.needs) this.needs[k] = Math.max(0, Math.min(100, this.needs[k]));
 
-        if (this.action === 'using' && this.interactionTarget && ['bladder', 'hygiene'].includes(this.interactionTarget.utility)) {
-            if (this.needs[this.interactionTarget.utility] >= 100) this.finishAction();
+        if (this.action === 'using' && this.interactionTarget && ['bladder', 'hygiene', 'energy'].includes(this.interactionTarget.utility)) {
+             if (this.needs[this.interactionTarget.utility] >= 100) this.finishAction();
         }
 
         if (this.actionTimer > 0) {
             this.actionTimer -= dt;
             if (this.actionTimer <= 0) this.finishAction();
         } else if (!this.target) {
-            this.decideAction();
+            DecisionLogic.decideAction(this);
         }
 
+        // 4. 移动逻辑
         if (this.target) {
             const dist = Math.sqrt(Math.pow(this.pos.x - this.target.x, 2) + Math.pow(this.pos.y - this.target.y, 2));
             if (dist < 8) {
@@ -372,11 +394,9 @@ export class Sim {
                 const dx = this.target.x - this.pos.x;
                 const dy = this.target.y - this.pos.y;
                 const angle = Math.atan2(dy, dx);
-
                 let speedMod = 1.0;
                 if (this.mood > 90) speedMod = 1.3;
                 if (this.mood < 30) speedMod = 0.7;
-
                 let nextX = this.pos.x + Math.cos(angle) * this.speed * speedMod * (dt * 0.1);
                 let nextY = this.pos.y + Math.sin(angle) * this.speed * speedMod * (dt * 0.1);
                 nextX = Math.max(10, Math.min(CONFIG.CANVAS_W - 10, nextX));
@@ -461,6 +481,7 @@ export class Sim {
         }
     }
 
+    // === State Management ===
     updateBuffs(minutesPassed: number) {
         this.buffs.forEach(b => {
             b.duration -= minutesPassed;
@@ -491,113 +512,21 @@ export class Sim {
         this.mood = Math.max(0, Math.min(100, base));
     }
 
-    decideAction() {
-        let critical = [
-            { id: 'energy', val: this.needs.energy },
-            { id: 'hunger', val: this.needs.hunger },
-            { id: 'bladder', val: this.needs.bladder },
-            { id: 'hygiene', val: this.needs.hygiene }
-        ].filter(n => n.val < 40);
-
-        if (critical.length > 0) {
-            critical.sort((a, b) => a.val - b.val);
-            this.findObject(critical[0].id);
-            return;
-        }
-
-        let scores = [
-            { id: 'energy', score: (100 - this.needs.energy) * 3.0, type: 'obj' },
-            { id: 'hunger', score: (100 - this.needs.hunger) * 2.5, type: 'obj' },
-            { id: 'bladder', score: (100 - this.needs.bladder) * 2.8, type: 'obj' },
-            { id: 'hygiene', score: (100 - this.needs.hygiene) * 1.5, type: 'obj' },
-            { id: 'fun', score: (100 - this.needs.fun) * 1.2, type: 'fun' },
-            { id: 'social', score: (100 - this.needs.social) * 1.5, type: 'social' }
-        ];
-
-        for (let skillKey in this.skills) {
-            let talent = this.skillModifiers[skillKey] || 1;
-            let skillScore = (100 - this.needs.fun) * 0.5 * talent;
-            scores.push({ id: `skill_${skillKey}`, score: skillScore, type: 'obj' });
-        }
-
-        if (this.needs.fun < 50 && this.money > 100) {
-            scores.push({ id: 'cinema_imax', score: 90, type: 'obj' });
-            scores.push({ id: 'gym_run', score: 60, type: 'obj' });
-        }
-
-        let socialNeed = scores.find(s => s.id === 'social');
-        if (socialNeed) {
-            if (this.mbti.startsWith('E')) socialNeed.score *= 1.5;
-            if (this.mood < 30) socialNeed.score = 0;
-        }
-
-        scores.sort((a, b) => b.score - a.score);
-        let choice = scores[Math.floor(Math.random() * Math.min(scores.length, 3))];
-
-        if (choice.score > 20) {
-            if (choice.id === 'social') this.findHuman();
-            else this.findObject(choice.id);
-        } else {
-            this.wander();
-        }
+    // 代理方法
+    getRelLabel(rel: any) {
+        return SocialLogic.getRelLabel(rel);
     }
 
-    findObject(type: string) {
-        let map: any = {
-            energy: 'energy', hunger: 'hunger', bladder: 'bladder', hygiene: 'hygiene', fun: 'fun',
-            cooking: 'cooking', gardening: 'gardening', fishing: 'fishing'
-        };
-        let utility = map[type] || type;
-
-        let candidates = FURNITURE.filter(f => {
-            if (f.utility === utility) return true;
-            if (utility === 'fun' && ['fun', 'comfort', 'cinema_2d', 'cinema_3d', 'cinema_imax'].includes(f.utility)) return true;
-            if (utility === 'hunger' && ['hunger', 'eat_out'].includes(f.utility)) return true;
-            if (type.startsWith('skill_')) return false;
-            return false;
-        });
-
-        if (candidates.length === 0) {
-            candidates = FURNITURE.filter(f => f.utility === type);
-        }
-
-        if (candidates.length) {
-            candidates = candidates.filter(f => !f.cost || f.cost <= this.money);
-
-            if (candidates.length) {
-                let obj = candidates[Math.floor(Math.random() * candidates.length)];
-                this.target = { x: obj.x + obj.w / 2, y: obj.y + obj.h / 2 };
-                this.interactionTarget = obj;
-                return;
-            }
-        }
-        this.wander();
+    getDialogue(typeId: string, target: Sim) {
+        return SocialLogic.getDialogue(this, typeId, target);
     }
 
-    findHuman() {
-        let others = GameStore.sims.filter(s => s.id !== this.id && s.action !== 'sleeping' && s.action !== 'working');
-        others.sort((a, b) => {
-            let relA = (this.relationships[a.id]?.friendship || 0) + this.getCompatibility(a) * 5;
-            let relB = (this.relationships[b.id]?.friendship || 0) + this.getCompatibility(b) * 5;
-            return relB - relA;
-        });
-
-        if (others.length) {
-            let partner = others[Math.floor(Math.random() * Math.min(others.length, 3))];
-            this.target = { x: partner.pos.x, y: partner.pos.y };
-            this.interactionTarget = { type: 'human', ref: partner };
-        } else {
-            this.wander();
-        }
+    triggerJealousy(actor: Sim, target: Sim) {
+        SocialLogic.triggerJealousy(this, actor, target);
     }
-
-    wander() {
-        let minX = 20, maxX = 880;
-        if (Math.random() < 0.6) { minX = 220; maxX = 300; }
-
-        this.target = { x: minX + Math.random() * (maxX - minX), y: 50 + Math.random() * 600 };
-        this.action = 'wandering';
-        this.actionTimer = minutes(30);
+    
+    updateRelationship(target: Sim, type: string, delta: number) {
+        SocialLogic.updateRelationship(this, target, type, delta);
     }
 
     startInteraction() {
@@ -608,7 +537,7 @@ export class Sim {
             const dist = Math.sqrt(Math.pow(this.pos.x - partner.pos.x, 2) + Math.pow(this.pos.y - partner.pos.y, 2));
             if (dist > 80 || partner.action === 'sleeping' || partner.action === 'working') {
                 this.reset();
-                this.wander();
+                DecisionLogic.wander(this);
                 return;
             }
             this.action = 'talking';
@@ -618,7 +547,7 @@ export class Sim {
                 partner.action = 'talking';
                 partner.actionTimer = minutes(40);
             }
-            this.performSocial(partner);
+            SocialLogic.performSocial(this, partner);
         } else {
             let obj = this.interactionTarget;
 
@@ -627,7 +556,6 @@ export class Sim {
                 this.reset();
                 return;
             }
-
             if (obj.cost) {
                 this.money -= obj.cost;
                 this.dailyExpense += obj.cost;
@@ -637,59 +565,63 @@ export class Sim {
 
             this.action = 'using';
             let verb = "使用";
-            let duration = minutes(30);
+            let durationMinutes = 30;
 
             if (obj.utility === 'buy_drink') {
                 if (this.money >= 5) { this.money -= 5; this.needs.hunger += 5; this.needs.fun += 5; this.say("咕嘟咕嘟", 'act'); }
-                duration = minutes(5);
+                durationMinutes = 5;
             }
             else if (obj.utility === 'buy_book') {
                 if (this.money >= 60) { this.buyItem(ITEMS.find(i => i.id === 'book')); }
-                duration = minutes(15);
+                durationMinutes = 15;
             }
             else if (obj.utility.startsWith('cinema_')) {
                 verb = "看电影 🎬";
                 this.action = "watching_movie";
-                duration = minutes(120);
+                durationMinutes = 120;
                 this.say(verb, 'act');
                 this.addBuff(BUFFS.movie_fun);
             }
-            else if (obj.utility === 'gym_run') {
-                verb = "跑步 🏃"; duration = minutes(60);
-            }
-            else if (obj.utility === 'gym_yoga') {
-                verb = "瑜伽 🧘"; duration = minutes(60);
-            }
-            else if (obj.utility === 'eat_out') {
-                verb = "用餐 🍴";
-                this.action = "eating";
-                duration = minutes(60);
-                this.addBuff(BUFFS.good_meal);
-            }
-            else if (obj.utility === 'gardening') { verb = "修剪花草 🌻"; duration = minutes(90); }
-            else if (obj.utility === 'fishing') { verb = "钓鱼 🎣"; duration = minutes(120); }
-            else if (obj.utility === 'energy') {
-                verb = "睡觉 💤";
-                this.action = "sleeping";
-                duration = minutes(600);
-            }
-            else if (obj.utility === 'hunger') { verb = "做饭 🍳"; this.action = "eating"; duration = minutes(60); }
-            else if (obj.utility === 'cooking') { verb = "练习厨艺 🍲"; duration = minutes(90); }
+            else if (obj.utility === 'gym_run' || obj.utility === 'gym_yoga') durationMinutes = 60;
+            else if (obj.utility === 'gardening') durationMinutes = 90;
+            else if (obj.utility === 'fishing') durationMinutes = 120;
+            else if (obj.utility === 'cooking') durationMinutes = 90;
             else if (obj.utility === 'work') {
                 verb = "工作 💻";
                 this.action = "working";
-                duration = 9999;
+                durationMinutes = 480; 
             }
             else {
-                if (obj.label.includes('沙发')) { verb = "葛优躺"; duration = minutes(60); }
-                if (obj.label.includes('马桶')) { verb = "方便"; duration = minutes(10); }
-                if (obj.label.includes('淋浴')) { verb = "洗澡"; duration = minutes(20); }
-                if (obj.label.includes('电脑')) { verb = "上网 ⌨️"; duration = minutes(90); }
-                if (obj.label.includes('音响')) { verb = "听歌 🎵"; duration = minutes(45); }
+                let targetNeed = obj.utility;
+                if (obj.utility === 'eat_out') targetNeed = 'hunger';
+                
+                let timePer100 = RESTORE_TIMES[targetNeed] || RESTORE_TIMES.default;
+                if (targetNeed === 'energy' && (obj.label.includes('沙发') || obj.label.includes('长椅'))) {
+                    timePer100 = RESTORE_TIMES.energy_nap;
+                }
+
+                if (targetNeed === 'energy') {
+                    this.action = 'sleeping';
+                    verb = "睡觉 💤";
+                } else if (targetNeed === 'hunger' || obj.utility === 'eat_out') {
+                    this.action = 'eating';
+                    verb = "用餐 🍴";
+                }
+
+                if (this.needs[targetNeed] !== undefined) {
+                    const missing = 100 - this.needs[targetNeed];
+                    durationMinutes = (missing / 100) * timePer100 * 1.1; 
+                    durationMinutes = Math.max(10, durationMinutes);
+                }
+                
+                if (obj.label.includes('沙发')) verb = "葛优躺";
+                if (obj.label.includes('马桶')) verb = "方便";
+                if (obj.label.includes('淋浴')) verb = "洗澡";
+                if (obj.label.includes('电脑')) verb = "上网 ⌨️";
             }
 
-            this.actionTimer = duration;
-            if (duration < 900 && Math.random() < 0.5) this.say(verb, 'act');
+            this.actionTimer = minutes(durationMinutes);
+            if (durationMinutes < 400 && Math.random() < 0.5) this.say(verb, 'act');
         }
     }
 
@@ -698,243 +630,6 @@ export class Sim {
         this.interactionTarget = null;
         this.action = 'idle';
         this.actionTimer = 0;
-    }
-
-    getCompatibility(partner: Sim) {
-        let score = 0;
-        for (let i = 0; i < 4; i++) if (this.mbti[i] === partner.mbti[i]) score++;
-        if (this.zodiac.element === partner.zodiac.element) score += 2;
-        else if (ELE_COMP[this.zodiac.element].includes(partner.zodiac.element)) score += 1;
-        else score -= 1;
-        return Math.max(0, score);
-    }
-
-    checkSexualOrientation(partner: Sim) {
-        if (this.orientation === 'bi') return true;
-        if (this.orientation === 'hetero') return this.gender !== partner.gender;
-        if (this.orientation === 'homo') return this.gender === partner.gender;
-        return false;
-    }
-
-    hasOtherPartner(partner: Sim) {
-        for (let id in this.relationships) {
-            if (id !== partner.id && this.relationships[id].romance > 80 && this.relationships[id].isLover) return true;
-        }
-        return false;
-    }
-
-    triggerJealousy(actor: Sim, target: Sim) {
-        let sensitivity = 60;
-        if (this.mbti.includes('F')) sensitivity -= 10;
-        if (this.zodiac.element === 'water' || this.zodiac.element === 'fire') sensitivity -= 10;
-
-        let relActor = this.relationships[actor.id]?.romance || 0;
-        let relTarget = this.relationships[target.id]?.romance || 0;
-
-        if (relActor > sensitivity || relTarget > sensitivity) {
-            this.say("💢 吃醋!", 'bad');
-            let oldLabelA = this.getRelLabel(this.relationships[actor.id] || {});
-            let oldLabelT = this.getRelLabel(this.relationships[target.id] || {});
-
-            const impact = -40 * this.socialModifier;
-
-            this.updateRelationship(actor, 'friendship', impact);
-            this.updateRelationship(actor, 'romance', impact);
-            this.updateRelationship(target, 'friendship', impact);
-            this.updateRelationship(target, 'romance', impact);
-
-            this.checkRelChange(actor, oldLabelA);
-            this.checkRelChange(target, oldLabelT);
-
-            GameStore.addLog(this, `目睹 ${actor.name} 和 ${target.name} 亲热，吃醋了！`, 'jealous');
-        }
-    }
-
-    getRelLabel(rel: any) {
-        let r = rel.romance || 0;
-        let isLover = rel.isLover;
-        if (isLover) return '恋人';
-        if (r > 80) return '爱慕';
-        if (r > 60) return '喜欢';
-        if (r > 40) return '暧昧';
-        if (r > 20) return '好感';
-        if (r > 10) return '心动';
-        if (r >= 0) return '无感';
-        if (r > -30) return '不吸引';
-        if (r > -60) return '嫌弃';
-        return '厌恶';
-    }
-
-    getFriendLabel(val: number) {
-        if (val > 80) return '挚友';
-        if (val > 50) return '好友';
-        if (val > 30) return '朋友';
-        if (val > 10) return '熟人';
-        if (val >= -10) return '陌生人';
-        if (val >= -30) return '不顺眼';
-        if (val >= -50) return '摩擦';
-        if (val >= -80) return '矛盾';
-        if (val >= -100) return '死对头';
-        return '仇人';
-    }
-
-    checkRelChange(partner: Sim, oldLabel: string) {
-        let newLabel = this.getRelLabel(this.relationships[partner.id] || {});
-        if (oldLabel !== newLabel && (newLabel === '恋人' || newLabel === '爱慕' || newLabel === '死对头')) {
-            GameStore.addLog(this, `与 ${partner.name} 的关系变成了 ${newLabel}`, 'rel_event');
-        }
-    }
-
-    performSocial(partner: Sim) {
-        const comp = this.getCompatibility(partner);
-        if (!this.relationships[partner.id]) this.relationships[partner.id] = { friendship: 0, romance: 0, isLover: false, hasRomance: false };
-        if (!partner.relationships[this.id]) partner.relationships[this.id] = { friendship: 0, romance: 0, isLover: false, hasRomance: false };
-
-        let rel = this.relationships[partner.id];
-        let oldLabel = this.getRelLabel(rel);
-
-        // [修复] 显式指定类型，解决 TS 隐式 any 或 never 问题
-        let availableActions: SocialType[] = SOCIAL_TYPES.filter(type => {
-            if (type.type === 'friendship') {
-                return rel.friendship >= type.minVal && rel.friendship <= type.maxVal;
-            } else if (type.type === 'romance') {
-                let romantic = rel.romance >= type.minVal && rel.romance <= type.maxVal;
-                if (type.special === 'confess') return !rel.isLover && rel.romance >= 40;
-                if (type.special === 'breakup') return rel.isLover && rel.romance < -60;
-                if (type.special === 'pickup') return !rel.hasRomance && rel.romance < 20;
-                if (!rel.hasRomance && type.special !== 'pickup') return false;
-                return romantic;
-            }
-            return false;
-        });
-
-        let canBeRomantic = this.checkSexualOrientation(partner);
-        if (canBeRomantic && this.faithfulness > 70 && this.hasOtherPartner(partner)) {
-            canBeRomantic = false;
-        }
-        else if (canBeRomantic && this.faithfulness < 40 && this.hasOtherPartner(partner)) {
-            if (Math.random() > 0.4) canBeRomantic = false;
-        }
-
-        if (!canBeRomantic) {
-            availableActions = availableActions.filter(t => t.type !== 'romance');
-        }
-
-        if (availableActions.length === 0) availableActions = [SOCIAL_TYPES[0]];
-
-        let romanceActions: SocialType[] = availableActions.filter(t => t.type === 'romance');
-
-        // [修复] 显式初始化
-        let finalType: SocialType = availableActions[0];
-
-        let romanticProb = 0.4;
-        if (this.mbti.includes('F')) romanticProb += 0.2;
-        if (this.faithfulness < 40) romanticProb += 0.2;
-        if (this.hasBuff('in_love')) romanticProb += 0.3;
-
-        if (romanceActions.length > 0 && Math.random() < romanticProb) {
-            finalType = romanceActions[Math.floor(Math.random() * romanceActions.length)];
-        } else {
-            finalType = availableActions[Math.floor(Math.random() * availableActions.length)];
-        }
-
-        let success = true;
-        if (finalType.type === 'romance') {
-            if (partner.faithfulness > 70 && partner.hasOtherPartner(this)) success = false;
-            if (finalType.minVal > partner.relationships[this.id].romance + 15) success = false;
-            if (finalType.special === 'breakup') success = true;
-        }
-
-        if (success) {
-            if (finalType.special === 'confess') {
-                if (partner.relationships[this.id].romance > 40) {
-                    rel.isLover = true;
-                    partner.relationships[this.id].isLover = true;
-                    GameStore.addLog(this, `向 ${partner.name} 表白成功！两人成为了恋人 ❤️`, 'rel_event');
-                    GameStore.spawnHeart(this.pos.x, this.pos.y);
-                    this.addBuff(BUFFS.in_love);
-                    partner.addBuff(BUFFS.in_love);
-                } else {
-                    success = false;
-                    GameStore.addLog(this, `向 ${partner.name} 表白被拒绝了...`, 'rel_event');
-                    this.updateRelationship(partner, 'romance', -10);
-                }
-            } else if (finalType.special === 'breakup') {
-                rel.isLover = false;
-                partner.relationships[this.id].isLover = false;
-                GameStore.addLog(this, `和 ${partner.name} 分手了... 💔`, 'rel_event');
-                this.addBuff(BUFFS.heartbroken);
-                partner.addBuff(BUFFS.heartbroken);
-            } else {
-                let val = finalType.val;
-                val += comp * 1.5;
-
-                if (finalType.type === 'romance') {
-                    rel.hasRomance = true;
-                    partner.relationships[this.id].hasRomance = true;
-                }
-
-                if (finalType.id === 'argue' && rel.romance > 60) {
-                    this.updateRelationship(partner, 'romance', -15);
-                    partner.updateRelationship(this, 'romance', -15);
-                }
-
-                this.updateRelationship(partner, finalType.type, val * this.socialModifier);
-                partner.updateRelationship(this, finalType.type, val * partner.socialModifier);
-
-                if (finalType.logType === 'love') {
-                    GameStore.spawnHeart(this.pos.x, this.pos.y);
-                    GameStore.sims.forEach(sim => {
-                        if (sim.id !== this.id && sim.id !== partner.id) {
-                            const dist = Math.sqrt(Math.pow(this.pos.x - sim.pos.x, 2) + Math.pow(this.pos.y - sim.pos.y, 2));
-                            if (dist < 150) sim.triggerJealousy(this, partner);
-                        }
-                    });
-                }
-
-                let text = this.getDefaultDialogue(finalType.id);
-                this.say(text, finalType.logType === 'love' ? 'love' : (finalType.logType === 'bad' ? 'bad' : 'normal'));
-                setTimeout(() => partner.say(finalType.id === 'argue' ? "哼！" : "...", 'normal'), 800);
-                let sign = val > 0 ? '+' : '';
-                let labelStr = finalType.type === 'romance' ? '浪漫' : '友谊';
-                if (finalType.special !== 'confess' && finalType.special !== 'breakup') {
-                    GameStore.addLog(this, `与 ${partner.name} ${finalType.label} (${labelStr} ${sign}${Math.floor(val)})`, finalType.logType);
-                }
-            }
-        } else {
-            this.say("...", 'bad');
-            setTimeout(() => partner.say("不要...", 'bad'), 800);
-            this.updateRelationship(partner, finalType.type, -5);
-            GameStore.addLog(this, `想对 ${partner.name} ${finalType.label} 但被拒绝了。`, 'bad');
-        }
-
-        this.checkRelChange(partner, oldLabel);
-    }
-
-    getDefaultDialogue(typeId: string) {
-        if (typeId === 'chat') return "最近好吗？";
-        if (typeId === 'joke') return "哈哈哈哈！";
-        if (typeId === 'argue') return "我不同意！";
-        if (typeId === 'gossip') return "你听说了吗？";
-        if (typeId === 'flirt') return "你真迷人~";
-        if (typeId === 'kiss') return "Mua!";
-        if (typeId === 'pickup') return "嗨，认识一下？";
-        if (typeId === 'deep_talk') return "你的梦想是？";
-        if (typeId === 'hug') return "抱抱~";
-        if (typeId === 'propose') return "嫁给我吧！";
-        if (typeId === 'greet') return "你好！";
-        return "...";
-    }
-
-    updateRelationship(target: Sim, type: string, delta: number) {
-        if (!this.relationships[target.id]) this.relationships[target.id] = { friendship: 0, romance: 0, isLover: false, hasRomance: false };
-        let rel = this.relationships[target.id];
-        if (type === 'friendship') {
-            rel.friendship = Math.max(-100, Math.min(100, rel.friendship + delta));
-        } else if (type === 'romance') {
-            rel.romance = Math.max(-100, Math.min(100, rel.romance + delta));
-            rel.friendship = Math.max(-100, Math.min(100, rel.friendship + delta * 0.3));
-        }
     }
 
     finishAction() {
