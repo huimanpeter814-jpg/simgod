@@ -1,10 +1,9 @@
-﻿import { CONFIG, BASE_DECAY, LIFE_GOALS, MBTI_TYPES, SURNAMES, GIVEN_NAMES, ZODIACS, JOBS, BUFFS, ITEMS, ASSET_CONFIG, HOLIDAYS } from '../constants';
+﻿import { CONFIG, BASE_DECAY, LIFE_GOALS, MBTI_TYPES, SURNAMES, GIVEN_NAMES, ZODIACS, JOBS, ITEMS, BUFFS, ASSET_CONFIG, HOLIDAYS } from '../constants';
 import { Vector2, Job, Buff, SimAppearance, Furniture } from '../types';
 import { GameStore } from './simulation';
 import { minutes, getJobCapacity } from './simulationHelpers';
 import { SocialLogic } from './logic/social';
 import { DecisionLogic } from './logic/decision';
-// [新增] 引入我们刚刚剥离出去的交互逻辑
 import { INTERACTIONS, RESTORE_TIMES } from './logic/interactionRegistry';
 
 export class Sim {
@@ -174,6 +173,12 @@ export class Sim {
     }
 
     checkSpending() {
+        // [修复 1] 防止梦游消费
+        // 只有当 Sim 处于闲逛或发呆状态时，才允许自主消费
+        if (this.action !== 'wandering' && this.action !== 'idle') {
+            return;
+        }
+
         if (this.money < 100) {
             if (!this.hasBuff('broke') && !this.hasBuff('anxious')) {
                 this.addBuff(BUFFS.broke);
@@ -262,9 +267,12 @@ export class Sim {
 
         if (item.buff) this.addBuff(BUFFS[item.buff as keyof typeof BUFFS]);
         
+        // [修复 3] 买票不再无用
+        // 如果买了美术馆门票，立即强制去找艺术品
         if (item.id === 'museum_ticket') {
-             this.say("去看展 🎨", 'act');
+             this.say("买票去看展 🎨", 'act');
              this.addBuff(BUFFS.art_inspired);
+             DecisionLogic.findObject(this, 'art'); // 强制跳转逻辑
         }
 
         let logSuffix = "";
@@ -332,7 +340,6 @@ export class Sim {
                     this.reset();
                 }
             } else {
-                // [优化] 使用导入的 INTERACTIONS 表
                 let handler = INTERACTIONS[obj.utility];
                 if (!handler) {
                      const prefixKey = Object.keys(INTERACTIONS).find(k => k.endsWith('_') && obj.utility.startsWith(k));
@@ -350,14 +357,16 @@ export class Sim {
 
         // 检查动作完成
         if (this.action === 'sleeping' && this.needs.energy >= 100) this.finishAction();
-        else if (this.action === 'eating' && this.needs.hunger >= 100) this.finishAction();
+        // [修复 2] 餐厅秒退修复
+        // 删除 "&& this.needs.hunger >= 100"，让 eating 必须持续到 timer 结束
+        // 这样 Sim 会在餐桌前待满规定的时间
+        else if (this.action === 'eating' && this.actionTimer <= 0) this.finishAction();
         else if (this.action === 'using' && this.interactionTarget) {
              if (this.interactionTarget.utility) {
                  const u = this.interactionTarget.utility;
                  if (['bladder', 'hygiene', 'energy'].includes(u) && this.needs[u] >= 100) this.finishAction();
-                 if (u === 'fun' && this.needs.fun >= 100) this.finishAction();
-                 if (u === 'play' && this.needs.fun >= 100) this.finishAction();
-                 if (u === 'art' && this.needs.fun >= 100) this.finishAction();
+                 // 娱乐类、艺术类活动，尽量让 Sim 玩久一点，直到 timer 结束，除非非常紧迫
+                 // if (u === 'fun' && this.needs.fun >= 100) this.finishAction();
              }
         }
 
@@ -365,6 +374,9 @@ export class Sim {
             this.actionTimer -= dt;
             if (this.actionTimer <= 0) this.finishAction();
         } else if (!this.target) {
+            // [修复 4] 原地太空步修复
+            // 如果 timer 结束且没有 target，强制重置状态为闲逛或待机
+            if (this.action === 'moving') this.action = 'idle';
             DecisionLogic.decideAction(this);
         }
 
@@ -373,8 +385,10 @@ export class Sim {
             if (dist < 8) {
                 this.pos = this.target;
                 this.target = null;
+                // 到达目的地，开始交互
                 this.startInteraction();
             } else {
+                // 移动逻辑
                 const dx = this.target.x - this.pos.x;
                 const dy = this.target.y - this.pos.y;
                 const angle = Math.atan2(dy, dx);
@@ -387,6 +401,7 @@ export class Sim {
                 nextY = Math.max(10, Math.min(CONFIG.CANVAS_H - 10, nextY));
                 this.pos.x = nextX;
                 this.pos.y = nextY;
+                // [修复 4] 确保移动时状态正确
                 this.action = 'moving';
             }
         }
