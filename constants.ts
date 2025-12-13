@@ -1,12 +1,13 @@
 /// <reference types="vite/client" />
 import { Furniture, Job } from './types';
 
-// 1. 扫描文件
+// 1. 扫描文件 (支持 png, jpg, jpeg, webp)
 const faceFiles = import.meta.glob('/public/assets/face/*.{png,jpg,jpeg,webp}', { eager: true });
 const hairFiles = import.meta.glob('/public/assets/hair/*.{png,jpg,jpeg,webp}', { eager: true });
 const clothesFiles = import.meta.glob('/public/assets/clothes/*.{png,jpg,jpeg,webp}', { eager: true });
 const pantsFiles = import.meta.glob('/public/assets/pants/*.{png,jpg,jpeg,webp}', { eager: true });
 
+// 2. 转换路径的辅助函数
 function getPathsFromGlob(globResult: Record<string, unknown>): string[] {
     return Object.keys(globResult).map(path => path.replace(/^\/public/, ''));
 }
@@ -37,216 +38,147 @@ export const PALETTES: any = {
     lateNight: { zone1: '#2f3640', zone2: '#2d3436', zone3: '#2d3436', wall: '#000000', bg: '#000000', overlay: 'rgba(0, 0, 0, 0.5)', furniture_shadow: 'rgba(0, 0, 0, 0.5)' }
 };
 
-// --- Updated Map Layout ---
+// ==========================================
+// 🗺️ 终极密集地图 v4.0 (1400x1000)
+// ==========================================
+
 export const ROOMS = [
-    // === 住宅区 (Left: 0 - 450) ===
-    // Res A (101)
-    { id: 'bedroom', x: 20, y: 20, w: 140, h: 120, label: '101 卧', color: '#f5f6fa', floorType: 'wood_dark' },
-    { id: 'living', x: 20, y: 140, w: 140, h: 140, label: '101 厅', color: '#f5f6fa', floorType: 'wood_light' },
-    { id: 'bathroom', x: 160, y: 20, w: 80, h: 100, label: '101 卫', color: '#dff9fb', floorType: 'tile_white' },
-    { id: 'kitchen', x: 160, y: 120, w: 80, h: 100, label: '101 厨', color: '#ffeaa7', floorType: 'tile_check' },
-
-    // Res B (102 Studio) - Tight Layout
-    { id: 'bedroom', x: 20, y: 300, w: 160, h: 160, label: '102 公寓', color: '#dfe6e9', floorType: 'wood_light' },
-    { id: 'bathroom', x: 180, y: 300, w: 60, h: 100, label: '102 卫', color: '#dff9fb', floorType: 'tile_blue' },
-
-    // Res C (Luxury)
-    { id: 'living', x: 260, y: 20, w: 180, h: 160, label: '豪宅 厅', color: '#fff3e0', floorType: 'marble' },
-    { id: 'bedroom', x: 260, y: 180, w: 120, h: 120, label: '豪宅 卧', color: '#ffe0b2', floorType: 'carpet_luxury' },
-    { id: 'bathroom', x: 380, y: 180, w: 60, h: 120, label: '豪宅 卫', color: '#81ecec', floorType: 'tile_dark' },
-
-    // Res D (103)
-    { id: 'living', x: 260, y: 320, w: 120, h: 120, label: '103 厅', color: '#f5f6fa', floorType: 'wood_light' },
-    { id: 'bedroom', x: 380, y: 320, w: 100, h: 100, label: '103 卧', color: '#f5f6fa', floorType: 'wood_dark' },
-    { id: 'kitchen', x: 260, y: 440, w: 100, h: 60, label: '103 厨', color: '#ffeaa7', floorType: 'tile_check' },
-
-    // [New] Res E (104 Staff Dorm - Squeezed in Office area)
-    { id: 'dorm_room', x: 1240, y: 20, w: 140, h: 160, label: '104 宿舍', color: '#b2bec3', floorType: 'concrete' },
-
-    // === 街道 (Center Strip) ===
-    { id: 'street', x: 490, y: 0, w: 80, h: 700, label: '中央大道', color: '#636e72', floorType: 'road' },
-
-    // === 商业区 (Center Right: 580 - 950) ===
-    // Cinema (Optimized size)
-    { id: 'cinema', x: 590, y: 20, w: 260, h: 200, label: '星光影城', color: '#2c3e50', floorType: 'carpet_red' },
-    // Restaurant
-    { id: 'restaurant', x: 590, y: 240, w: 260, h: 180, label: '餐厅', color: '#e17055', floorType: 'wood_fancy' },
-    // Bookstore
-    { id: 'bookstore', x: 590, y: 440, w: 160, h: 140, label: '书店', color: '#fdcb6e', floorType: 'wood_light' },
-    // Gym
-    { id: 'gym', x: 760, y: 440, w: 160, h: 140, label: '健身房', color: '#b2bec3', floorType: 'concrete' },
-
-    // [New] Public Toilet (Commercial Area)
-    { id: 'wc_public_1', x: 860, y: 240, w: 40, h: 60, label: '公厕', color: '#eee', floorType: 'tile' },
-
-    // === 办公区 (Far Right: 960 - 1400) ===
-    { id: 'office_design', x: 940, y: 20, w: 180, h: 160, label: '设计部', color: '#f5f6fa', floorType: 'carpet_office' },
-    // Moved Business office slightly to left to fit Dorm
-    { id: 'office_business', x: 1120, y: 20, w: 120, h: 160, label: '商务部', color: '#ecf0f1', floorType: 'marble' },
-    { id: 'office_internet', x: 940, y: 200, w: 440, h: 220, label: '字节跳动', color: '#a29bfe', floorType: 'tile_white' },
-
-    // === 公园 & 扩展设施 (Bottom: Full width) ===
-    // [New] Art Gallery (Museum) - Inside Park Top Left
-    { id: 'museum', x: 30, y: 620, w: 250, h: 160, label: '现代美术馆', color: '#ffffff', floorType: 'tile_white' },
+    // === 🏡 住宅区 (左上) ===
+    { id: 'apt_hall', x: 20, y: 20, w: 340, h: 60, label: '公寓走廊', color: '#b2bec3' },
+    { id: 'apt_101', x: 20, y: 80, w: 160, h: 160, label: '101 极客屋', color: '#dfe6e9' },
+    { id: 'apt_102', x: 200, y: 80, w: 160, h: 160, label: '102 居家屋', color: '#dfe6e9' },
+    { id: 'apt_103', x: 20, y: 260, w: 160, h: 160, label: '103 合租房', color: '#dfe6e9' },
+    { id: 'apt_104', x: 200, y: 260, w: 160, h: 160, label: '104 仓库房', color: '#dfe6e9' },
     
-    // Park Green Area
-    { id: 'park', x: 20, y: 600, w: 1360, h: 380, label: '中央公园', color: '#badc58', floorType: 'grass' },
-    
-    // [New] Public Toilet (Park Area)
-    { id: 'wc_public_2', x: 1280, y: 650, w: 60, h: 80, label: '公园公厕', color: '#7f8fa6', floorType: 'wood' },
+    // === 🏰 豪宅 (左中) ===
+    { id: 'villa_main', x: 20, y: 440, w: 220, h: 180, label: '豪宅主厅', color: '#fff3e0' },
+    { id: 'villa_bed', x: 240, y: 440, w: 120, h: 180, label: '主卧', color: '#ffe0b2' },
+    { id: 'villa_garden', x: 20, y: 620, w: 340, h: 80, label: '私人花园', color: '#55efc4' },
 
-    // 横向马路
-    { id: 'street', x: 0, y: 530, w: 1400, h: 60, label: '横贯路', color: '#636e72', floorType: 'road' },
+    // === 🌳 中央广场 (中) ===
+    { id: 'plaza_main', x: 400, y: 150, w: 500, h: 400, label: '中央广场', color: '#ecf0f1' },
+    { id: 'public_wc', x: 820, y: 450, w: 80, h: 100, label: '公厕', color: '#74b9ff' },
+
+    // === 🏢 办公园区 (右上) ===
+    { id: 'off_lobby', x: 940, y: 20, w: 440, h: 80, label: '写字楼大堂', color: '#b2bec3' },
+    { id: 'off_tech', x: 940, y: 100, w: 440, h: 200, label: '互联网大厂', color: '#a29bfe' },
+    { id: 'off_design', x: 940, y: 320, w: 200, h: 180, label: '设计工作室', color: '#ffcccc' },
+    { id: 'off_biz', x: 1160, y: 320, w: 220, h: 180, label: '金融事务所', color: '#74b9ff' },
+
+    // === 🏥 公共服务区 (右中) ===
+    { id: 'hospital', x: 940, y: 520, w: 220, h: 200, label: '综合医院', color: '#81ecec' },
+    { id: 'library', x: 1180, y: 520, w: 200, h: 200, label: '图书馆', color: '#f7f1e3' },
+
+    // === 🍻 商业娱乐区 (底部通栏) ===
+    { id: 'arcade', x: 20, y: 720, w: 200, h: 260, label: '电玩城', color: '#2d3436' },
+    { id: 'gym', x: 240, y: 720, w: 200, h: 260, label: '健身中心', color: '#b2bec3' },
+    { id: 'restaurant', x: 460, y: 720, w: 300, h: 260, label: '美食广场', color: '#e17055' },
+    { id: 'cinema', x: 780, y: 720, w: 240, h: 260, label: '电影院', color: '#0984e3' },
+    { id: 'museum', x: 1040, y: 740, w: 340, h: 240, label: '艺术馆', color: '#ffffff' },
+
+    // === 🛣️ 道路 ===
+    { id: 'road_v', x: 360, y: 0, w: 40, h: 700, label: '', color: '#353b48' },
+    { id: 'road_v2', x: 900, y: 0, w: 40, h: 720, label: '', color: '#353b48' },
+    { id: 'road_h', x: 0, y: 700, w: 1400, h: 20, label: '', color: '#353b48' },
 ];
 
-// Helper to generate cinema seats row
-const createCinemaRow = (y: number, startX: number, count: number, price: number, type: string, color: string) => {
-    return Array.from({ length: count }).map((_, i) => ({
-        id: `seat_${type}_${y}_${i}`,
-        x: startX + i * 40,
-        y: y,
-        w: 30,
-        h: 20,
-        color: color,
-        label: `${price}元座`,
-        utility: type,
-        dir: 'up',
-        multiUser: false,
-        cost: price,
-        gender: ''
-    }));
-};
-
 export const FURNITURE: Furniture[] = [
-    // === Res A (101) - Enriched ===
-    { id: 'bed_101', x: 30, y: 30, w: 60, h: 80, color: '#a29bfe', label: '大床', utility: 'energy', dir: 'up', multiUser: true, gender: '' },
-    { id: 'pc_101', x: 110, y: 30, w: 40, h: 30, color: '#0984e3', label: '电脑', utility: 'fun', dir: 'down', multiUser: false, gender: '' },
-    { id: 'plant_101', x: 140, y: 150, w: 20, h: 20, color: '#00b894', label: '绿植', utility: 'decor', dir: 'down', multiUser: false, gender: '' }, // New
-    { id: 'sofa_101', x: 30, y: 160, w: 80, h: 40, color: '#fd79a8', label: '沙发', utility: 'comfort', dir: 'up', multiUser: true, gender: '' },
-    { id: 'rug_101', x: 40, y: 210, w: 60, h: 40, color: '#fab1a0', label: '地毯', utility: 'comfort', dir: 'up', multiUser: false, gender: '' }, // New
-    { id: 'tv_101', x: 40, y: 260, w: 60, h: 10, color: '#2d3436', label: '电视', utility: 'fun', dir: 'down', multiUser: true, gender: '' },
-    { id: 'toilet_101', x: 170, y: 30, w: 30, h: 30, color: '#dfe6e9', label: '马桶', utility: 'bladder', dir: 'down', multiUser: false, gender: '' },
-    { id: 'shower_101', x: 200, y: 30, w: 30, h: 30, color: '#81ecec', label: '淋浴', utility: 'hygiene', dir: 'down', multiUser: false, gender: '' },
-    { id: 'stove_101', x: 170, y: 130, w: 30, h: 30, color: '#ff7675', label: '灶台', utility: 'cooking', dir: 'down', multiUser: false, gender: '' },
-    { id: 'fridge_101', x: 200, y: 130, w: 30, h: 40, color: '#b2bec3', label: '冰箱', utility: 'hunger', dir: 'down', multiUser: true, gender: '' },
+    // --- 🏡 101: 极客公寓 (单人) ---
+    { id: 'bed_101', x: 30, y: 90, w: 50, h: 80, color: '#0984e3', label: '床', utility: 'energy', dir: 'up', multiUser: false, gender: '' },
+    { id: 'pc_101', x: 100, y: 90, w: 60, h: 30, color: '#00cec9', label: '双屏电脑', utility: 'fun', dir: 'down', multiUser: false, gender: '' }, 
+    { id: 'desk_101', x: 90, y: 90, w: 80, h: 40, color: '#2d3436', label: '桌子', utility: 'work', dir: 'down', multiUser: false, gender: '' },
+    { id: 'game_console', x: 120, y: 140, w: 30, h: 30, color: '#ff7675', label: '游戏机', utility: 'play', dir: 'left', multiUser: false, gender: '' }, 
 
-    // === Res B (102) - Enriched ===
-    { id: 'bed_102', x: 30, y: 310, w: 60, h: 80, color: '#00b894', label: '单人床', utility: 'energy', dir: 'up', multiUser: false, gender: '' },
-    { id: 'desk_102', x: 110, y: 310, w: 50, h: 30, color: '#636e72', label: '书桌', utility: 'work', dir: 'up', multiUser: false, gender: '' },
-    { id: 'chair_102', x: 120, y: 350, w: 30, h: 30, color: '#fab1a0', label: '椅子', utility: 'comfort', dir: 'up', multiUser: false, gender: '' }, // New
-    { id: 'toilet_102', x: 190, y: 310, w: 30, h: 30, color: '#dfe6e9', label: '马桶', utility: 'bladder', dir: 'down', multiUser: false, gender: '' },
-    { id: 'shower_102', x: 190, y: 360, w: 30, h: 30, color: '#81ecec', label: '淋浴', utility: 'hygiene', dir: 'down', multiUser: false, gender: '' }, // New
+    // --- 🏡 102: 居家公寓 (双人) ---
+    { id: 'bed_102', x: 210, y: 90, w: 60, h: 90, color: '#fd79a8', label: '大床', utility: 'energy', dir: 'up', multiUser: true, gender: '' },
+    { id: 'kitchen_102', x: 300, y: 90, w: 50, h: 40, color: '#fab1a0', label: '灶台', utility: 'cooking', dir: 'down', multiUser: false, gender: '' },
+    { id: 'fridge_102', x: 300, y: 140, w: 30, h: 40, color: '#b2bec3', label: '冰箱', utility: 'hunger', dir: 'left', multiUser: true, gender: '' },
+    { id: 'tv_102', x: 220, y: 200, w: 60, h: 10, color: '#2d3436', label: '电视', utility: 'fun', dir: 'down', multiUser: true, gender: '' },
+    { id: 'sofa_102', x: 220, y: 170, w: 60, h: 30, color: '#ffeaa7', label: '沙发', utility: 'comfort', dir: 'up', multiUser: true, gender: '' },
 
-    // === Res C (Luxury) ===
-    { id: 'sofa_lux_1', x: 280, y: 40, w: 100, h: 50, color: '#fab1a0', label: '真皮沙发', utility: 'comfort', dir: 'up', multiUser: true, gender: '' },
-    { id: 'piano', x: 280, y: 120, w: 80, h: 50, color: '#2d3436', label: '钢琴', utility: 'fun', dir: 'up', multiUser: false, gender: '' },
-    { id: 'plant_lux', x: 410, y: 30, w: 30, h: 30, color: '#00b894', label: '大盆栽', utility: 'decor', dir: 'down', multiUser: false, gender: '' }, // New
-    { id: 'bed_lux', x: 270, y: 190, w: 80, h: 100, color: '#fd79a8', label: '豪华大床', utility: 'energy', dir: 'up', multiUser: true, gender: '' },
-    { id: 'bath_lux', x: 390, y: 190, w: 40, h: 60, color: '#81ecec', label: '浴缸', utility: 'hygiene', dir: 'up', multiUser: false, gender: '' },
+    // --- 🏡 103: 合租房 (双书桌) ---
+    { id: 'bunk_bed_103', x: 30, y: 270, w: 50, h: 80, color: '#a29bfe', label: '双层床', utility: 'energy', dir: 'up', multiUser: true, gender: '' },
+    { id: 'desk_103_a', x: 100, y: 270, w: 40, h: 30, color: '#636e72', label: '书桌', utility: 'work', dir: 'down', multiUser: false, gender: '' },
+    { id: 'desk_103_b', x: 140, y: 270, w: 40, h: 30, color: '#636e72', label: '书桌', utility: 'work', dir: 'down', multiUser: false, gender: '' },
 
-    // === Res D (103) ===
-    { id: 'sofa_103', x: 270, y: 330, w: 80, h: 40, color: '#fab1a0', label: '沙发', utility: 'comfort', dir: 'up', multiUser: true, gender: '' },
-    { id: 'tv_103', x: 300, y: 380, w: 40, h: 10, color: '#2d3436', label: '电视', utility: 'fun', dir: 'down', multiUser: true, gender: '' }, // New
-    { id: 'bed_103', x: 400, y: 330, w: 60, h: 80, color: '#a29bfe', label: '大床', utility: 'energy', dir: 'up', multiUser: true, gender: '' },
-    { id: 'stove_103', x: 270, y: 450, w: 30, h: 30, color: '#ff7675', label: '灶台', utility: 'cooking', dir: 'down', multiUser: false, gender: '' },
+    // --- 🏡 104: 仓库改建 ---
+    { id: 'mat_104', x: 210, y: 270, w: 40, h: 70, color: '#dfe6e9', label: '地铺', utility: 'energy', dir: 'up', multiUser: false, gender: '' },
+    { id: 'easel_104', x: 280, y: 280, w: 40, h: 50, color: '#fab1a0', label: '画架', utility: 'art', dir: 'left', multiUser: false, gender: '' }, 
 
-    // === [New] Res E (104 Dorm) ===
-    { id: 'bed_104_1', x: 1250, y: 30, w: 50, h: 70, color: '#74b9ff', label: '宿舍床1', utility: 'energy', dir: 'up', multiUser: false, gender: '' },
-    { id: 'bed_104_2', x: 1320, y: 30, w: 50, h: 70, color: '#74b9ff', label: '宿舍床2', utility: 'energy', dir: 'up', multiUser: false, gender: '' },
-    { id: 'desk_104', x: 1250, y: 120, w: 120, h: 30, color: '#636e72', label: '长桌', utility: 'work', dir: 'down', multiUser: true, gender: '' },
+    // --- 🏰 豪宅 ---
+    { id: 'villa_piano', x: 40, y: 460, w: 60, h: 80, color: '#2d3436', label: '三角钢琴', utility: 'play', dir: 'right', multiUser: false, gender: '' },
+    { id: 'villa_sofa_l', x: 120, y: 480, w: 80, h: 30, color: '#e17055', label: '真皮沙发', utility: 'comfort', dir: 'down', multiUser: true, gender: '' },
+    { id: 'villa_sofa_r', x: 120, y: 550, w: 80, h: 30, color: '#e17055', label: '真皮沙发', utility: 'comfort', dir: 'up', multiUser: true, gender: '' },
+    { id: 'villa_bed', x: 260, y: 460, w: 80, h: 100, color: '#fdcb6e', label: '国王床', utility: 'energy', dir: 'up', multiUser: true, gender: '' },
+    { id: 'villa_bath', x: 300, y: 580, w: 50, h: 30, color: '#81ecec', label: '按摩浴缸', utility: 'hygiene', dir: 'up', multiUser: false, gender: '' },
+    { id: 'garden_chair', x: 100, y: 640, w: 40, h: 40, color: '#fff', label: '花园椅', utility: 'comfort', dir: 'down', multiUser: true, gender: '' },
 
-    // === Cinema (Individual Seats) ===
-    { id: 'screen', x: 620, y: 30, w: 200, h: 10, color: '#fff', label: '银幕', utility: 'none', dir: 'down', multiUser: false, gender: '' },
-    // VIP Row
-    ...createCinemaRow(60, 630, 5, 30, 'cinema_imax', '#d63031') as Furniture[],
-    // Couple Row
-    ...createCinemaRow(100, 630, 5, 20, 'cinema_3d', '#e17055') as Furniture[],
-    // Normal Rows
-    ...createCinemaRow(140, 630, 5, 10, 'cinema_2d', '#0984e3') as Furniture[],
-    ...createCinemaRow(180, 630, 5, 10, 'cinema_2d', '#0984e3') as Furniture[],
+    // --- 🌳 广场 & 公共设施 ---
+    { id: 'fountain', x: 600, y: 300, w: 100, h: 100, color: '#74b9ff', label: '喷泉', utility: 'play', dir: 'down', multiUser: true, gender: '' },
+    { id: 'bench_sq_1', x: 500, y: 250, w: 20, h: 60, color: '#e17055', label: '长椅', utility: 'comfort', dir: 'right', multiUser: true, gender: '' },
+    { id: 'bench_sq_2', x: 500, y: 350, w: 20, h: 60, color: '#e17055', label: '长椅', utility: 'comfort', dir: 'right', multiUser: true, gender: '' },
+    { id: 'bench_sq_3', x: 780, y: 250, w: 20, h: 60, color: '#e17055', label: '长椅', utility: 'comfort', dir: 'left', multiUser: true, gender: '' },
+    { id: 'vending_sq', x: 420, y: 160, w: 40, h: 30, color: '#ff7675', label: '售货机', utility: 'buy_drink', dir: 'down', multiUser: false, gender: '' },
+    { id: 'wc_m', x: 830, y: 460, w: 20, h: 30, color: '#fff', label: '男厕', utility: 'bladder', dir: 'right', multiUser: false, gender: 'M' },
+    { id: 'wc_f', x: 830, y: 500, w: 20, h: 30, color: '#fff', label: '女厕', utility: 'bladder', dir: 'right', multiUser: false, gender: 'F' },
 
-    // === Restaurant ===
-    { id: 'r_table_1', x: 610, y: 260, w: 60, h: 40, color: '#e17055', label: '雅座', utility: 'eat_out', dir: 'up', multiUser: true, cost: 80, gender: '' },
-    { id: 'r_table_2', x: 690, y: 260, w: 60, h: 40, color: '#e17055', label: '雅座', utility: 'eat_out', dir: 'up', multiUser: true, cost: 80, gender: '' },
-    { id: 'r_table_3', x: 630, y: 340, w: 80, h: 60, color: '#e17055', label: '圆桌', utility: 'eat_out', dir: 'up', multiUser: true, cost: 120, gender: '' },
-    { id: 'r_kitchen', x: 800, y: 260, w: 40, h: 140, color: '#b2bec3', label: '后厨', utility: 'work', dir: 'left', multiUser: true, gender: '' },
-    { id: 'r_counter', x: 770, y: 380, w: 20, h: 30, color: '#636e72', label: '前台', utility: 'work', dir: 'left', multiUser: false, gender: '' },
-    // Commercial Public Toilet
-    { id: 'wc_comm', x: 865, y: 245, w: 30, h: 30, color: '#dfe6e9', label: '商场厕所', utility: 'bladder', dir: 'down', multiUser: false, gender: '' },
-
-    // === Store & Gym ===
-    { id: 'book_shelf_1', x: 610, y: 460, w: 100, h: 20, color: '#fdcb6e', label: '书架', utility: 'buy_book', dir: 'down', multiUser: true, cost: 60, gender: '' },
-    { id: 'book_shelf_2', x: 610, y: 500, w: 100, h: 20, color: '#fdcb6e', label: '畅销书', utility: 'buy_book', dir: 'down', multiUser: true, cost: 40, gender: '' }, // New
-    { id: 'gym_run_1', x: 780, y: 460, w: 40, h: 60, color: '#b2bec3', label: '跑步机', utility: 'gym_run', dir: 'right', multiUser: false, gender: '' },
-    { id: 'gym_run_2', x: 830, y: 460, w: 40, h: 60, color: '#b2bec3', label: '跑步机', utility: 'gym_run', dir: 'right', multiUser: false, gender: '' }, // New
-    { id: 'gym_yoga', x: 880, y: 460, w: 40, h: 60, color: '#fab1a0', label: '瑜伽垫', utility: 'gym_yoga', dir: 'right', multiUser: false, gender: '' },
-
-    // === Offices ===
-    // Design
-    { id: 'd_desk_1', x: 960, y: 40, w: 50, h: 30, color: '#fab1a0', label: '设计桌', utility: 'work', dir: 'down', multiUser: false, gender: '' },
-    { id: 'd_desk_2', x: 1030, y: 40, w: 50, h: 30, color: '#fab1a0', label: '设计桌', utility: 'work', dir: 'down', multiUser: false, gender: '' },
-    { id: 'd_dir', x: 990, y: 100, w: 60, h: 40, color: '#e17055', label: '总监桌', utility: 'work', dir: 'left', multiUser: false, gender: '' },
-
-    // Business
-    { id: 'b_desk_1', x: 1130, y: 40, w: 50, h: 30, color: '#ecf0f1', label: '商务桌', utility: 'work', dir: 'down', multiUser: false, gender: '' },
-    { id: 'b_desk_2', x: 1130, y: 100, w: 50, h: 30, color: '#ecf0f1', label: '商务桌', utility: 'work', dir: 'down', multiUser: false, gender: '' },
-
-    // Internet
-    { id: 'it_desk_1', x: 960, y: 220, w: 50, h: 30, color: '#a29bfe', label: '开发桌', utility: 'work', dir: 'down', multiUser: false, gender: '' },
-    { id: 'it_desk_2', x: 1030, y: 220, w: 50, h: 30, color: '#a29bfe', label: '开发桌', utility: 'work', dir: 'down', multiUser: false, gender: '' },
-    { id: 'it_desk_3', x: 1100, y: 220, w: 50, h: 30, color: '#a29bfe', label: '开发桌', utility: 'work', dir: 'down', multiUser: false, gender: '' },
-    { id: 'it_desk_4', x: 960, y: 280, w: 50, h: 30, color: '#a29bfe', label: '开发桌', utility: 'work', dir: 'down', multiUser: false, gender: '' },
-    { id: 'it_desk_5', x: 1030, y: 280, w: 50, h: 30, color: '#a29bfe', label: '开发桌', utility: 'work', dir: 'down', multiUser: false, gender: '' },
-    { id: 'it_desk_6', x: 1100, y: 280, w: 50, h: 30, color: '#a29bfe', label: '开发桌', utility: 'work', dir: 'down', multiUser: false, gender: '' }, // New
-    { id: 'it_cto', x: 1250, y: 250, w: 70, h: 50, color: '#6c5ce7', label: 'CTO桌', utility: 'work', dir: 'left', multiUser: false, gender: '' },
-
-    // === [New] Art Gallery (Museum) ===
-    { id: 'art_1', x: 50, y: 640, w: 10, h: 60, color: '#fff', label: '油画', utility: 'art', dir: 'right', multiUser: true, gender: '' },
-    { id: 'art_2', x: 150, y: 640, w: 10, h: 60, color: '#fff', label: '油画', utility: 'art', dir: 'right', multiUser: true, gender: '' },
-    { id: 'sculpture_1', x: 200, y: 680, w: 40, h: 40, color: '#dfe6e9', label: '现代雕塑', utility: 'art', dir: 'down', multiUser: true, gender: '' },
-    { id: 'museum_bench', x: 100, y: 720, w: 60, h: 20, color: '#2d3436', label: '休息凳', utility: 'comfort', dir: 'up', multiUser: true, gender: '' },
-
-    // === Park Enriched ===
-    { id: 'lake', x: 550, y: 640, w: 300, h: 150, color: '#74b9ff', label: '人工湖', utility: 'fishing', dir: 'down', multiUser: true, gender: '' },
-    { id: 'fountain', x: 650, y: 850, w: 100, h: 100, color: '#81ecec', label: '喷泉', utility: 'fun', dir: 'down', multiUser: true, gender: '' }, // New
+    // --- 🏢 办公区 (密集阵列) ---
+    // Tech Rows
+    { id: 'tech_d1', x: 960, y: 120, w: 40, h: 30, color: '#a29bfe', label: '工位', utility: 'work', dir: 'down', multiUser: false, gender: '' },
+    { id: 'tech_d2', x: 1010, y: 120, w: 40, h: 30, color: '#a29bfe', label: '工位', utility: 'work', dir: 'down', multiUser: false, gender: '' },
+    { id: 'tech_d3', x: 1060, y: 120, w: 40, h: 30, color: '#a29bfe', label: '工位', utility: 'work', dir: 'down', multiUser: false, gender: '' },
+    { id: 'tech_d4', x: 1110, y: 120, w: 40, h: 30, color: '#a29bfe', label: '工位', utility: 'work', dir: 'down', multiUser: false, gender: '' },
+    { id: 'tech_d5', x: 960, y: 170, w: 40, h: 30, color: '#a29bfe', label: '工位', utility: 'work', dir: 'down', multiUser: false, gender: '' },
+    { id: 'tech_d6', x: 1010, y: 170, w: 40, h: 30, color: '#a29bfe', label: '工位', utility: 'work', dir: 'down', multiUser: false, gender: '' },
+    { id: 'tech_d7', x: 1060, y: 170, w: 40, h: 30, color: '#a29bfe', label: '工位', utility: 'work', dir: 'down', multiUser: false, gender: '' },
+    { id: 'tech_cto', x: 1300, y: 140, w: 60, h: 50, color: '#6c5ce7', label: 'CTO', utility: 'work', dir: 'left', multiUser: false, gender: '' },
     
-    // Playground
-    { id: 'slide', x: 950, y: 650, w: 80, h: 120, color: '#ff7675', label: '滑梯', utility: 'play', dir: 'down', multiUser: false, gender: '' }, // New
-    { id: 'swing', x: 1100, y: 650, w: 100, h: 40, color: '#fdcb6e', label: '秋千', utility: 'play', dir: 'down', multiUser: true, gender: '' }, // New
-    { id: 'sandbox', x: 1050, y: 750, w: 80, h: 80, color: '#ffeaa7', label: '沙坑', utility: 'play', dir: 'down', multiUser: true, gender: '' }, // New
+    // Design & Biz
+    { id: 'des_table_1', x: 960, y: 340, w: 60, h: 50, color: '#ff7675', label: '绘图台', utility: 'work', dir: 'down', multiUser: false, gender: '' },
+    { id: 'des_table_2', x: 1040, y: 340, w: 60, h: 50, color: '#ff7675', label: '绘图台', utility: 'work', dir: 'down', multiUser: false, gender: '' },
+    { id: 'biz_meet', x: 1180, y: 340, w: 80, h: 60, color: '#74b9ff', label: '会议桌', utility: 'work', dir: 'up', multiUser: true, gender: '' },
+    { id: 'biz_boss', x: 1300, y: 400, w: 60, h: 40, color: '#0984e3', label: '经理', utility: 'work', dir: 'left', multiUser: false, gender: '' },
 
-    // Picnic Area
-    { id: 'picnic_1', x: 350, y: 850, w: 80, h: 60, color: '#b2bec3', label: '野餐桌', utility: 'eat_out', dir: 'down', multiUser: true, cost: 10, gender: '' }, // New
-    { id: 'vending_park', x: 450, y: 850, w: 40, h: 60, color: '#d63031', label: '售货机', utility: 'buy_drink', dir: 'down', multiUser: false, cost: 5, gender: '' }, // New
+    // --- 🏥 医院 & 图书馆 ---
+    { id: 'hosp_bed1', x: 960, y: 540, w: 40, h: 70, color: '#fff', label: '病床', utility: 'energy', dir: 'up', multiUser: false, gender: '' },
+    { id: 'hosp_bed2', x: 1010, y: 540, w: 40, h: 70, color: '#fff', label: '病床', utility: 'energy', dir: 'up', multiUser: false, gender: '' },
+    { id: 'med_cab', x: 1100, y: 540, w: 40, h: 80, color: '#00cec9', label: '药房', utility: 'hygiene', dir: 'left', multiUser: true, gender: '' }, // 注意：用 hygiene 代替 health 以免修改 Sim.ts
+    { id: 'lib_shelf1', x: 1200, y: 540, w: 160, h: 20, color: '#fdcb6e', label: '书架', utility: 'buy_book', dir: 'down', multiUser: true, gender: '' },
+    { id: 'lib_shelf2', x: 1200, y: 580, w: 160, h: 20, color: '#fdcb6e', label: '书架', utility: 'buy_book', dir: 'down', multiUser: true, gender: '' },
+    { id: 'lib_desk', x: 1220, y: 640, w: 120, h: 40, color: '#dfe6e9', label: '自习桌', utility: 'work', dir: 'up', multiUser: true, gender: '' },
 
-    // Park Public Toilet
-    { id: 'wc_park', x: 1290, y: 660, w: 40, h: 60, color: '#dfe6e9', label: '公厕', utility: 'bladder', dir: 'down', multiUser: false, gender: '' },
-
-    // Benches & Flowers
-    { id: 'bench_p1', x: 400, y: 650, w: 50, h: 25, color: '#d35400', label: '长椅', utility: 'comfort', dir: 'up', multiUser: true, gender: '' },
-    { id: 'flower_1', x: 300, y: 620, w: 60, h: 60, color: '#fd79a8', label: '花坛', utility: 'gardening', dir: 'down', multiUser: true, gender: '' },
-    { id: 'flower_2', x: 1200, y: 850, w: 60, h: 60, color: '#fd79a8', label: '花坛', utility: 'gardening', dir: 'down', multiUser: true, gender: '' },
-
-    // Street Decor
-    { id: 'vending_street', x: 500, y: 400, w: 20, h: 40, color: '#d63031', label: '售货机', utility: 'buy_drink', dir: 'right', multiUser: false, cost: 5, gender: '' },
-    { id: 'lamp_1', x: 500, y: 100, w: 10, h: 10, color: '#f1c40f', label: '路灯', utility: 'none', dir: 'down', multiUser: false, gender: '' },
-    { id: 'lamp_2', x: 500, y: 300, w: 10, h: 10, color: '#f1c40f', label: '路灯', utility: 'none', dir: 'down', multiUser: false, gender: '' },
-    { id: 'lamp_3', x: 500, y: 500, w: 10, h: 10, color: '#f1c40f', label: '路灯', utility: 'none', dir: 'down', multiUser: false, gender: '' },
+    // --- 🎮 娱乐区 (丰富互动) ---
+    // Arcade
+    { id: 'arcade_1', x: 40, y: 740, w: 30, h: 40, color: '#d63031', label: '街机', utility: 'play', dir: 'right', multiUser: false, gender: '' },
+    { id: 'arcade_2', x: 40, y: 800, w: 30, h: 40, color: '#d63031', label: '街机', utility: 'play', dir: 'right', multiUser: false, gender: '' },
+    { id: 'dance_machine', x: 100, y: 760, w: 60, h: 60, color: '#fd79a8', label: '跳舞机', utility: 'play', dir: 'down', multiUser: true, gender: '' },
+    // Gym
+    { id: 'treadmill_1', x: 260, y: 740, w: 30, h: 60, color: '#636e72', label: '跑步机', utility: 'gym_run', dir: 'right', multiUser: false, gender: '' },
+    { id: 'treadmill_2', x: 300, y: 740, w: 30, h: 60, color: '#636e72', label: '跑步机', utility: 'gym_run', dir: 'right', multiUser: false, gender: '' },
+    { id: 'yoga_mat', x: 260, y: 840, w: 80, h: 60, color: '#fab1a0', label: '瑜伽垫', utility: 'gym_yoga', dir: 'up', multiUser: true, gender: '' },
+    // Restaurant
+    { id: 'res_table_1', x: 480, y: 740, w: 60, h: 60, color: '#e17055', label: '餐桌', utility: 'eat_out', dir: 'up', multiUser: true, cost: 40, gender: '' },
+    { id: 'res_table_2', x: 560, y: 740, w: 60, h: 60, color: '#e17055', label: '餐桌', utility: 'eat_out', dir: 'up', multiUser: true, cost: 40, gender: '' },
+    { id: 'res_counter', x: 650, y: 850, w: 80, h: 20, color: '#636e72', label: '出餐口', utility: 'work', dir: 'up', multiUser: false, gender: '' },
+    // Cinema
+    { id: 'screen', x: 800, y: 730, w: 200, h: 10, color: '#fff', label: '巨幕', utility: 'none', dir: 'down', multiUser: false, gender: '' },
+    { id: 'seats_1', x: 800, y: 770, w: 200, h: 40, color: '#d63031', label: '情侣座', utility: 'cinema_3d', dir: 'up', multiUser: true, cost: 20, gender: '' },
+    { id: 'seats_2', x: 800, y: 830, w: 200, h: 60, color: '#0984e3', label: '普通座', utility: 'cinema_2d', dir: 'up', multiUser: true, cost: 10, gender: '' },
+    // Museum (New!)
+    { id: 'painting_1', x: 1060, y: 760, w: 60, h: 10, color: '#ff7675', label: '名画', utility: 'art', dir: 'down', multiUser: true, gender: '' },
+    { id: 'sculpture', x: 1200, y: 820, w: 40, h: 40, color: '#b2bec3', label: '雕塑', utility: 'art', dir: 'down', multiUser: true, gender: '' },
+    { id: 'painting_2', x: 1300, y: 760, w: 60, h: 10, color: '#ff7675', label: '名画', utility: 'art', dir: 'down', multiUser: true, gender: '' },
 ];
 
 export const ITEMS = [
     { id: 'drink', label: '快乐水', cost: 5, needs: { hunger: 5, fun: 5 }, trigger: 'street' },
-    { id: 'book', label: '专业书籍', cost: 60, needs: { fun: 10 }, skill: 'logic', skillVal: 5, trigger: 'smart' },
-    { id: 'cinema_2d', label: '2D电影票', cost: 10, needs: { fun: 40 }, trigger: 'bored' },
-    { id: 'cinema_3d', label: '3D电影票', cost: 20, needs: { fun: 60 }, trigger: 'rich' },
-    { id: 'cinema_imax', label: 'IMAX电影票', cost: 30, needs: { fun: 80 }, trigger: 'rich' },
-    { id: 'gym_run', label: '跑步机', cost: 15, needs: { energy: -20 }, skill: 'athletics', skillVal: 5, trigger: 'active' },
-    { id: 'gym_yoga', label: '瑜伽课', cost: 20, needs: { energy: -15 }, skill: 'athletics', skillVal: 8, trigger: 'active' },
-    { id: 'food_cheap', label: '工作餐', cost: 50, needs: { hunger: 60 }, trigger: 'hungry' },
-    { id: 'food_mid', label: '商务套餐', cost: 80, needs: { hunger: 80, fun: 10 }, trigger: 'rich_hungry' },
-    { id: 'food_fancy', label: '豪华大餐', cost: 120, needs: { hunger: 100, fun: 20 }, trigger: 'rich_hungry' },
-    // New Items
-    { id: 'museum_ticket', label: '美术馆门票', cost: 20, needs: { fun: 30 }, skill: 'creativity', skillVal: 3, trigger: 'smart' },
+    { id: 'book', label: '技术书', cost: 60, needs: { fun: 10 }, skill: 'logic', skillVal: 5, trigger: 'smart' },
+    { id: 'cinema_2d', label: '电影票', cost: 10, needs: { fun: 40 }, trigger: 'bored' },
+    { id: 'cinema_3d', label: '3D票', cost: 20, needs: { fun: 60 }, trigger: 'rich' },
+    { id: 'museum_ticket', label: '艺术展票', cost: 30, buff: 'art_inspired', needs: { fun: 50 }, trigger: 'smart' },
+    { id: 'gym_pass', label: '健身卡', cost: 15, needs: { energy: -20 }, skill: 'athletics', skillVal: 5, trigger: 'active' },
+    { id: 'medicine', label: '感冒药', cost: 40, buff: 'well_rested', trigger: 'sad' },
+    { id: 'game_coin', label: '游戏币', cost: 5, needs: { fun: 20 }, trigger: 'bored' },
 ];
 
 export const SKILLS = [
@@ -307,10 +239,11 @@ export const BUFFS = {
     promoted: { id: 'promoted', label: '升职之喜', type: 'good' as const, duration: 240 },
     demoted: { id: 'demoted', label: '被降职', type: 'bad' as const, duration: 240 },
     fired: { id: 'fired', label: '被解雇', type: 'bad' as const, duration: 300 },
-    art_inspired: { id: 'art_inspired', label: '艺术熏陶', type: 'good' as const, duration: 150 }, // New
-    playful: { id: 'playful', label: '童心未泯', type: 'good' as const, duration: 100 }, // New
+    art_inspired: { id: 'art_inspired', label: '艺术灵感', type: 'good' as const, duration: 150 }, // New
+    playful: { id: 'playful', label: '童心未泯', type: 'good' as const, duration: 90 }, // New
 };
 
+// 节日配置 (Month, Day)
 export const HOLIDAYS = [
     { month: 1, day: 1, name: "新年" },
     { month: 2, day: 14, name: "情人节" },
