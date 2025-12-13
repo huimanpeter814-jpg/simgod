@@ -92,7 +92,7 @@ export const DecisionLogic = {
     findSideHustle(sim: Sim) {
         // [优化] 这里的 filter 可以考虑进一步优化，但目前数量级较小，先保持
         // 如果要极致优化，可以在 GameStore 中维护一个 'pc' 或 'computer' 的辅助索引
-        let options = [];
+        let options: { type: string; target: Furniture }[] = [];
 
         // 1. Coding/Writing (Need PC)
         if (sim.skills.logic > 5 || sim.skills.creativity > 5) {
@@ -165,7 +165,7 @@ export const DecisionLogic = {
 
         // 2. 过滤不可用项 (数量级已大幅减少)
         if (candidates.length) {
-            candidates = candidates.filter(f => {
+            candidates = candidates.filter((f: Furniture)=> {
                  // 钱够不够
                  if (f.cost && f.cost > sim.money) return false;
                  // 私有保留
@@ -180,7 +180,7 @@ export const DecisionLogic = {
 
             if (candidates.length) {
                 // 优先选择最近的 (Sorting small list is fine)
-                candidates.sort((a, b) => {
+                candidates.sort((a: Furniture, b: Furniture) => {
                     const distA = Math.pow(a.x - sim.pos.x, 2) + Math.pow(a.y - sim.pos.y, 2);
                     const distB = Math.pow(b.x - sim.pos.x, 2) + Math.pow(b.y - sim.pos.y, 2);
                     return distA - distB;

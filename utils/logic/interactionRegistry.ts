@@ -42,7 +42,7 @@ export const INTERACTIONS: Record<string, InteractionHandler> = {
     'buy_book': {
         verb: '买书', duration: 15,
         onStart: (sim, obj) => {
-            if (sim.money >= 60) { sim.buyItem(ITEMS.find(i => i.id === 'book')); return true; }
+            if (sim.money >= 60) { sim.buyItem(ITEMS.find((i: any) => i.id === 'book')); return true; }
             sim.say("买不起...", 'bad'); return false;
         }
     },
