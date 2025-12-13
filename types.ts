@@ -19,6 +19,26 @@ export interface Furniture {
   cost?: number;
   tier?: string;
   imagePath?: string;
+  pixelPattern?: string;
+  pixelOutline?: boolean;
+  pixelGlow?: boolean;
+  pixelShadow?: boolean;
+  glowColor?: string;
+  outlineColor?: string;
+  shadowColor?: string;
+  shape?: 'rectangle' | 'circle' | 'ellipse' | 'l-shape' | 't-shape' | 'polygon';
+  // 圆形和椭圆形的特殊属性
+  radius?: number;
+  radiusX?: number;
+  radiusY?: number;
+  // 多边形的点
+  points?: {x: number, y: number}[];
+  // 是否填充
+  fill?: boolean;
+  // 边框宽度
+  borderWidth?: number;
+  // 边框颜色
+  borderColor?: string;
 }
 
 export interface Needs {
