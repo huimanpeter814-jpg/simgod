@@ -1,12 +1,10 @@
-import { PALETTES, HOLIDAYS, BUFFS } from '../constants';
-import { LogEntry, GameTime } from '../types';
+import { PALETTES, HOLIDAYS, BUFFS, JOBS } from '../constants';
+import { LogEntry, GameTime, Job } from '../types';
 import { Sim } from './Sim';
 
-// 导出 Sim 和辅助函数，供其他组件(如 GameCanvas)使用
 export { Sim } from './Sim';
 export { drawAvatarHead, minutes, getJobCapacity } from './simulationHelpers';
 
-// Global simulation state container
 export class GameStore {
     static sims: Sim[] = [];
     static particles: { x: number; y: number; life: number }[] = [];
@@ -25,7 +23,6 @@ export class GameStore {
         this.listeners.forEach(cb => cb());
     }
 
-    // 移回来的静态方法，供 Sim 类调用产生爱心粒子
     static spawnHeart(x: number, y: number) {
         this.particles.push({ x, y, life: 1.0 });
     }
@@ -51,16 +48,9 @@ export class GameStore {
         this.notify();
     }
 
-    // === 存档系统 ===
-
     static saveGame() {
-        // 深拷贝前先进行清洗，防止 JSON 循环引用 (Circular Reference)
-        // 主要针对 sim.interactionTarget 可能指向另一个 Sim 的情况
         const safeSims = this.sims.map(sim => {
-            // 使用 Object.assign 浅拷贝对象，避免直接修改原始 Sim 实例
             const s = Object.assign({}, sim);
-            
-            // 如果交互目标包含 ref (通常是指向另一个 Sim)，则清除该动作，避免 JSON.stringify 报错
             if (s.interactionTarget && (s.interactionTarget as any).ref) {
                 s.interactionTarget = null;
                 s.action = 'idle';
@@ -78,7 +68,6 @@ export class GameStore {
 
         try {
             localStorage.setItem('pixel_life_save_v1', JSON.stringify(saveData));
-            this.addLog(null, "游戏进度已保存", "sys");
             console.log("[System] Game Saved");
         } catch (e) {
             console.error("Save failed", e);
@@ -93,8 +82,6 @@ export class GameStore {
             
             const data = JSON.parse(json);
 
-            // 恢复基础数据
-            // [新增兼容性处理] 旧存档可能没有 date/month/weekday，给默认值
             this.time = {
                 day: data.time.day || 1,
                 hour: data.time.hour || 8,
@@ -106,10 +93,30 @@ export class GameStore {
             };
             this.logs = data.logs || [];
             
-            // 恢复 Sim 对象 (关键步骤：恢复类方法)
             this.sims = data.sims.map((sData: any) => {
                 const sim = new Sim(sData.pos.x, sData.pos.y);
                 Object.assign(sim, sData);
+                
+                // [Auto-Fix] 检测职业数据是否过期
+                // 检查 Job 对象是否有新的必须字段 (比如 companyType 在某些旧档可能缺失，或者 level 结构变了)
+                const currentJobDefinition = JOBS.find(j => j.id === sim.job.id);
+                
+                // 如果当前职业ID不存在于新列表中，或者关键字段缺失，强制重置为无业游民
+                if (!currentJobDefinition || (sim.job.level > 0 && !sim.job.startHour)) {
+                    console.warn(`[SaveFix] Resetting job for ${sim.name} due to outdated data.`);
+                    sim.job = JOBS.find(j => j.id === 'unemployed')!;
+                    sim.workPerformance = 0;
+                } else {
+                    // 如果职业ID存在，更新职业数据结构为最新版 (覆盖旧数据的配置)
+                    // 这样可以确保 startHour, salary 等数值是最新的配置
+                    sim.job = { ...currentJobDefinition };
+                }
+
+                // 修复 dailyIncome 缺失的问题
+                if (sim.dailyIncome === undefined) {
+                    sim.dailyIncome = 0;
+                }
+
                 if (sim.action === 'talking') {
                     sim.action = 'idle'; 
                     sim.interactionTarget = null;
@@ -120,7 +127,7 @@ export class GameStore {
             this.notify();
             return true;
         } catch (e) {
-            console.error("Load failed", e);
+            console.error("Load failed, save file might be corrupted", e);
             return false;
         }
     }
@@ -133,13 +140,10 @@ export class GameStore {
     }
 }
 
-// Initialization and Loop
 export function initGame() {
-    // 尝试读取存档
     if (GameStore.loadGame()) {
         GameStore.addLog(null, "读取存档成功，欢迎回来！", "sys");
     } else {
-        // 如果没有存档，则初始化新游戏
         GameStore.sims.push(new Sim(120, 120));
         GameStore.sims.push(new Sim(150, 150));
         GameStore.addLog(null, "新世界已生成。", "sys");
@@ -154,25 +158,20 @@ export function updateTime() {
     if (GameStore.timeAccumulator >= 60) {
         GameStore.timeAccumulator = 0;
         GameStore.time.minute++;
-        // Notify on every minute change
         GameStore.notify();
 
-        // Minute trigger for sims (update with dt=0 for event checks)
         GameStore.sims.forEach(s => s.update(0, true));
 
         if (GameStore.time.minute >= 60) {
             GameStore.time.minute = 0;
             GameStore.time.hour++;
 
-            // Hourly Triggers
             GameStore.sims.forEach(s => s.checkSpending());
 
-            // Daily Trigger (00:00)
             if (GameStore.time.hour >= 24) {
                 GameStore.time.hour = 0;
                 GameStore.time.day++;
                 
-                // === 日期进位逻辑 ===
                 GameStore.time.date++;
                 GameStore.time.weekday++;
                 if (GameStore.time.weekday > 7) GameStore.time.weekday = 1;
@@ -182,11 +181,9 @@ export function updateTime() {
                     if (GameStore.time.month > 12) GameStore.time.month = 1;
                 }
 
-                // === 每日重置 ===
-                let dailyLog = `Day ${GameStore.time.day} | ${GameStore.time.month}月${GameStore.time.date}日 (周${['日','一','二','三','四','五','六'][GameStore.time.weekday % 7]})`;
+                let dailyLog = `Day ${GameStore.time.day} | ${GameStore.time.month}月${GameStore.time.date}日`;
                 GameStore.addLog(null, dailyLog, 'sys');
 
-                // 检查节日
                 const holiday = HOLIDAYS.find(h => h.month === GameStore.time.month && h.day === GameStore.time.date);
                 if (holiday) {
                     GameStore.addLog(null, `🎉 今天是 ${holiday.name}！`, 'sys');
@@ -194,14 +191,13 @@ export function updateTime() {
 
                 GameStore.sims.forEach(s => {
                     s.dailyExpense = 0;
+                    s.dailyIncome = 0; // [New] Reset daily income
                     s.calculateDailyBudget(); 
 
-                    // 节日/周末 Buff
                     if (holiday) s.addBuff(BUFFS.holiday_joy);
                     else if (GameStore.time.weekday >= 6) s.addBuff(BUFFS.weekend_vibes);
                 });
                 
-                // === 自动保存 ===
                 GameStore.saveGame();
             }
         }

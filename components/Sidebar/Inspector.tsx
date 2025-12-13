@@ -102,7 +102,7 @@ const Inspector: React.FC<InspectorProps> = ({ selectedId, sims }) => {
     }
 
     // Prefer bubble text if it's an action description and recent
-    const displayStatus = (sim.bubble.type === 'act' && sim.bubble.text && sim.bubble.timer > 0)
+    const displayStatus = (sim.bubble?.type === 'act' && sim.bubble?.text && sim.bubble?.timer > 0)
         ? sim.bubble.text
         : statusText;
 
@@ -150,7 +150,7 @@ const Inspector: React.FC<InspectorProps> = ({ selectedId, sims }) => {
                     </div>
                 </div>
 
-                {/* Economy (NEW) */}
+                {/* Economy (Updated) */}
                 <div>
                     <div className="text-[10px] text-gray-500 font-bold uppercase tracking-wider mb-2">财务状况</div>
                     <div className="grid grid-cols-2 gap-2">
@@ -167,8 +167,11 @@ const Inspector: React.FC<InspectorProps> = ({ selectedId, sims }) => {
                             <div className="text-sm font-bold text-gray-300">${sim.dailyBudget}</div>
                         </div>
                         <div className="bg-white/5 p-2 rounded border border-white/5">
-                            <div className="text-[10px] text-gray-400">今日消费</div>
-                            <div className="text-sm font-bold text-danger">-${sim.dailyExpense}</div>
+                            <div className="text-[10px] text-gray-400">今日收支</div>
+                            <div className="flex justify-between items-end">
+                                <span className="text-sm font-bold text-success">+${sim.dailyIncome || 0}</span>
+                                <span className="text-xs font-bold text-danger">-${sim.dailyExpense}</span>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -218,12 +221,14 @@ const Inspector: React.FC<InspectorProps> = ({ selectedId, sims }) => {
                     <div className="text-[10px] text-gray-500 font-bold uppercase tracking-wider mb-2">技能等级</div>
                     <div className="grid grid-cols-2 gap-x-4 gap-y-2">
                         {Object.entries(sim.skills).map(([key, val]) => {
-                            if ((val as number) < 5) return null; // Hide very low skills
+                            // 确保 val 是数字类型
+                            const skillVal = val as number;
+                            if (skillVal < 5) return null; // Hide very low skills
                             const label = SKILLS.find(s => s.id === key)?.label || key;
                             return (
                                 <div key={key} className="flex justify-between items-center bg-white/5 px-2 py-1 rounded border border-white/5">
                                     <span className="text-[10px] text-gray-300">{label}</span>
-                                    <SkillBar val={val as number} />
+                                    <SkillBar val={skillVal} />
                                 </div>
                             );
                         })}

@@ -178,25 +178,39 @@ export const SKILLS = [
     { id: 'gardening', label: '园艺' }, { id: 'fishing', label: '钓鱼' }
 ];
 
+// 每个职业划分为4个等级
 export const JOBS: Job[] = [
     { id: 'unemployed', title: '无业游民', level: 0, salary: 0, startHour: 0, endHour: 0, workDays: [] },
 
     // Internet Co
-    { id: 'developer', title: '程序员', level: 2, salary: 500, startHour: 10, endHour: 19, companyType: 'internet', workDays: [1, 2, 3, 4, 5] },
-    { id: 'cto', title: '技术总监', level: 4, salary: 1500, startHour: 10, endHour: 17, companyType: 'internet', workDays: [1, 2, 3, 4, 5] },
+    { id: 'dev_intern', title: 'IT实习生', level: 1, salary: 300, startHour: 9, endHour: 18, companyType: 'internet', workDays: [1, 2, 3, 4, 5] },
+    { id: 'developer', title: '程序员', level: 2, salary: 600, startHour: 10, endHour: 19, companyType: 'internet', workDays: [1, 2, 3, 4, 5] },
+    { id: 'senior_dev', title: '高级开发', level: 3, salary: 1000, startHour: 10, endHour: 18, companyType: 'internet', workDays: [1, 2, 3, 4, 5] },
+    { id: 'cto', title: '技术总监', level: 4, salary: 2000, startHour: 11, endHour: 17, companyType: 'internet', workDays: [1, 2, 3, 4, 5] },
 
     // Design Co
-    { id: 'designer', title: '设计师', level: 2, salary: 450, startHour: 9, endHour: 18, companyType: 'design', workDays: [1, 2, 3, 4, 5] },
-    { id: 'art_director', title: '艺术总监', level: 4, salary: 1200, startHour: 10, endHour: 16, companyType: 'design', workDays: [1, 2, 3, 4] },
+    { id: 'design_intern', title: '设计助理', level: 1, salary: 250, startHour: 9, endHour: 18, companyType: 'design', workDays: [1, 2, 3, 4, 5] },
+    { id: 'designer', title: '设计师', level: 2, salary: 500, startHour: 10, endHour: 19, companyType: 'design', workDays: [1, 2, 3, 4, 5] },
+    { id: 'senior_designer', title: '资深设计', level: 3, salary: 800, startHour: 10, endHour: 18, companyType: 'design', workDays: [1, 2, 3, 4, 5] },
+    { id: 'art_director', title: '艺术总监', level: 4, salary: 1600, startHour: 11, endHour: 16, companyType: 'design', workDays: [1, 2, 3, 4] },
 
     // Business Co
-    { id: 'clerk_biz', title: '商务专员', level: 2, salary: 400, startHour: 9, endHour: 17, companyType: 'business', workDays: [1, 2, 3, 4, 5, 6] },
-    { id: 'manager', title: '经理', level: 3, salary: 800, startHour: 9, endHour: 17, companyType: 'business', workDays: [1, 2, 3, 4, 5] },
+    { id: 'biz_intern', title: '行政助理', level: 1, salary: 200, startHour: 8, endHour: 17, companyType: 'business', workDays: [1, 2, 3, 4, 5] },
+    { id: 'clerk_biz', title: '商务专员', level: 2, salary: 450, startHour: 9, endHour: 17, companyType: 'business', workDays: [1, 2, 3, 4, 5, 6] },
+    { id: 'biz_supervisor', title: '部门主管', level: 3, salary: 900, startHour: 9, endHour: 17, companyType: 'business', workDays: [1, 2, 3, 4, 5] },
+    { id: 'manager', title: '总经理', level: 4, salary: 1800, startHour: 10, endHour: 16, companyType: 'business', workDays: [1, 2, 3, 4, 5] },
 
-    // Services
-    { id: 'clerk_book', title: '书店店员', level: 1, salary: 160, startHour: 9, endHour: 17, companyType: 'store', workDays: [1, 2, 3, 4, 5, 6, 7] },
-    { id: 'waiter', title: '服务员', level: 1, salary: 180, startHour: 11, endHour: 20, companyType: 'restaurant', workDays: [1, 2, 3, 4, 5, 6, 7] },
-    { id: 'cook', title: '厨师', level: 2, salary: 350, startHour: 10, endHour: 20, companyType: 'restaurant', workDays: [1, 2, 3, 4, 5, 6] },
+    // Services (Store)
+    { id: 'store_trainee', title: '理货员', level: 1, salary: 150, startHour: 8, endHour: 16, companyType: 'store', workDays: [1, 2, 3, 4, 5, 6] },
+    { id: 'clerk_book', title: '书店店员', level: 2, salary: 250, startHour: 9, endHour: 17, companyType: 'store', workDays: [1, 2, 3, 4, 5, 6, 7] },
+    { id: 'store_supervisor', title: '店长助理', level: 3, salary: 400, startHour: 9, endHour: 18, companyType: 'store', workDays: [1, 2, 3, 4, 5, 6] },
+    { id: 'store_manager', title: '书店店长', level: 4, salary: 600, startHour: 10, endHour: 17, companyType: 'store', workDays: [1, 2, 3, 4, 5] },
+
+    // Services (Restaurant)
+    { id: 'kitchen_helper', title: '洗碗工', level: 1, salary: 160, startHour: 10, endHour: 20, companyType: 'restaurant', workDays: [1, 2, 3, 4, 5, 6, 7] },
+    { id: 'waiter', title: '服务员', level: 2, salary: 280, startHour: 11, endHour: 20, companyType: 'restaurant', workDays: [1, 2, 3, 4, 5, 6, 7] },
+    { id: 'cook', title: '厨师', level: 3, salary: 500, startHour: 10, endHour: 20, companyType: 'restaurant', workDays: [1, 2, 3, 4, 5, 6] },
+    { id: 'head_chef', title: '主厨', level: 4, salary: 800, startHour: 10, endHour: 19, companyType: 'restaurant', workDays: [1, 2, 3, 4, 5] },
 ];
 
 export const BUFFS = {
@@ -212,6 +226,10 @@ export const BUFFS = {
     good_meal: { id: 'good_meal', label: '美味佳肴', type: 'good' as const, duration: 120 },
     holiday_joy: { id: 'holiday_joy', label: '节日快乐', type: 'good' as const, duration: 240 },
     weekend_vibes: { id: 'weekend_vibes', label: '周末愉快', type: 'good' as const, duration: 200 },
+    side_hustle_win: { id: 'side_hustle_win', label: '赚外快', type: 'good' as const, duration: 90 },
+    promoted: { id: 'promoted', label: '升职之喜', type: 'good' as const, duration: 240 },
+    demoted: { id: 'demoted', label: '被降职', type: 'bad' as const, duration: 240 },
+    fired: { id: 'fired', label: '被解雇', type: 'bad' as const, duration: 300 },
 };
 
 // 节日配置 (Month, Day)

@@ -29,6 +29,24 @@ export const DecisionLogic = {
             { id: 'social', score: (100 - sim.needs.social) * 1.5, type: 'social' }
         ];
 
+        // [新增] 无业游民的赚钱动力 (Side Hustle)
+        // 存款越少，动力越大。性格也会影响。
+        if (sim.job.id === 'unemployed') {
+            let moneyDesire = 0;
+            if (sim.money < 500) moneyDesire = 200; // 极度缺钱
+            else if (sim.money < 2000) moneyDesire = 100; // 有点缺钱
+            else if (sim.lifeGoal.includes('富翁')) moneyDesire = 80; // 想发财
+            
+            // 技能越高，越倾向于去做对应的事
+            if (sim.skills.coding > 10) moneyDesire += sim.skills.coding;
+            if (sim.skills.fishing > 10) moneyDesire += sim.skills.fishing;
+            if (sim.skills.creativity > 10) moneyDesire += sim.skills.creativity;
+
+            if (moneyDesire > 0) {
+                scores.push({ id: 'side_hustle', score: moneyDesire, type: 'work' });
+            }
+        }
+
         // 技能练习加分
         for (let skillKey in sim.skills) {
             let talent = sim.skillModifiers[skillKey] || 1;
@@ -55,7 +73,39 @@ export const DecisionLogic = {
 
         if (choice.score > 20) {
             if (choice.id === 'social') DecisionLogic.findHuman(sim);
+            else if (choice.id === 'side_hustle') DecisionLogic.findSideHustle(sim);
             else DecisionLogic.findObject(sim, choice.id);
+        } else {
+            DecisionLogic.wander(sim);
+        }
+    },
+
+    findSideHustle(sim: Sim) {
+        // 根据技能和设施选择赚钱方式
+        // 优先级: 电脑(写代码/小说) > 钓鱼 > 园艺
+        let options = [];
+
+        // 1. Coding/Writing (Need PC)
+        if (sim.skills.logic > 5 || sim.skills.creativity > 5) {
+            let pcs = FURNITURE.filter(f => f.label.includes('电脑') && (!f.reserved || f.reserved === sim.id));
+            if (pcs.length > 0) options.push({ type: 'pc', target: pcs[0] });
+        }
+
+        // 2. Fishing (Need Lake)
+        let lake = FURNITURE.find(f => f.utility === 'fishing');
+        if (lake) options.push({ type: 'lake', target: lake });
+
+        // 3. Gardening (Need Flower)
+        let flowers = FURNITURE.filter(f => f.utility === 'gardening');
+        if (flowers.length > 0) options.push({ type: 'garden', target: flowers[Math.floor(Math.random() * flowers.length)] });
+
+        if (options.length > 0) {
+            // 随机选一个，或者根据技能选
+            let best = options[Math.floor(Math.random() * options.length)];
+            sim.target = { x: best.target.x + best.target.w / 2, y: best.target.y + best.target.h / 2 };
+            sim.interactionTarget = best.target;
+            // 重要: 标记这是一个赚钱的动作，后续在 Sim.ts 中处理
+            sim.isSideHustle = true;
         } else {
             DecisionLogic.wander(sim);
         }

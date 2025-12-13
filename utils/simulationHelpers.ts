@@ -1,51 +1,78 @@
 import { SimData, Job } from '../types';
 import { CONFIG, FURNITURE } from '../constants';
-import { getAsset } from './assetLoader'; // [ĞÂ¹¦ÄÜ] ÒıÓÃ×ÊÔ´¼ÓÔØÆ÷
+import { getAsset } from './assetLoader'; // [æ–°åŠŸèƒ½] å¼•ç”¨èµ„æºåŠ è½½å™¨
 
-// ½«ÓÎÏ··ÖÖÓ×ª»»Îª tick Êı (1 ÓÎÏ··ÖÖÓ = 60 ticks)
+// å°†æ¸¸æˆåˆ†é’Ÿè½¬æ¢ä¸º tick æ•° (1 æ¸¸æˆåˆ†é’Ÿ = 60 ticks)
 export const minutes = (m: number) => m * 60;
 
-// ¼ÆËãÌØ¶¨Ö°ÒµµÄ¹¤Î»ÈİÁ¿
+// è®¡ç®—ç‰¹å®šèŒä¸šçš„å·¥ä½å®¹é‡
 export const getJobCapacity = (job: Job) => {
-    let searchLabel = '';
-    if (job.companyType === 'internet') searchLabel = job.level >= 4 ? 'CTO' : '¿ª·¢';
-    else if (job.companyType === 'design') searchLabel = job.level >= 4 ? '×Ü¼à' : 'Éè¼Æ';
-    else if (job.companyType === 'business') searchLabel = job.level >= 3 ? '¾­Àí' : 'ÉÌÎñ';
-    else if (job.companyType === 'store') searchLabel = 'Ç°Ì¨';
-    else if (job.companyType === 'restaurant') searchLabel = job.title === '³øÊ¦' ? 'ºó³ø' : 'Ç°Ì¨';
-    else return 0; // Unemployed
+    let searchLabels: string[] = [];
+    
+    // Level 1-3 share common desks, Level 4 gets executive desks (where available)
+    if (job.companyType === 'internet') {
+        searchLabels = job.level >= 4 ? ['CTO'] : ['å¼€å‘'];
+    } else if (job.companyType === 'design') {
+        searchLabels = job.level >= 4 ? ['æ€»ç›‘'] : ['è®¾è®¡'];
+    } else if (job.companyType === 'business') {
+        // Business L4 shares normal desks currently unless we add a specific manager desk
+        searchLabels = ['å•†åŠ¡', 'ç»ç†']; 
+    } else if (job.companyType === 'store') {
+        // Stores rely on limited counters and shelves
+        searchLabels = ['å‰å°', 'ä¹¦æ¶'];
+    } else if (job.companyType === 'restaurant') {
+        searchLabels = job.title === 'å¨å¸ˆ' || job.title === 'ä¸»å¨' ? ['åå¨'] : ['å‰å°', 'é›…åº§']; 
+        // Waiters (level 1/2) can technically "work" by patrolling tables, so we check tables too for capacity roughly
+    } else {
+        return 0; // Unemployed
+    }
 
-    // Í³¼Æ·ûºÏ¸ÃÖ°ÒµĞèÇóµÄ¼Ò¾ßÊıÁ¿
-    return FURNITURE.filter(f => f.utility === 'work' && f.label.includes(searchLabel)).length;
+    // ç»Ÿè®¡ç¬¦åˆè¯¥èŒä¸šéœ€æ±‚çš„å®¶å…·æ•°é‡
+    // For waiters/store clerks, we might want higher capacity than just 1 counter
+    // Simple heuristic: if it's a service job, allow more capacity than furniture count to simulate "standing"
+    let capacity = FURNITURE.filter(f => 
+        f.utility === 'work' && searchLabels.some(l => f.label.includes(l))
+    ).length;
+
+    if (job.companyType === 'store' || job.companyType === 'restaurant') {
+        capacity += 2; // Allow some slack for service workers
+    }
+    
+    // For level 4 (Bosses), strictly limit to 1 per unique furniture usually
+    if (job.level === 4 && job.companyType !== 'restaurant') {
+        return Math.max(1, capacity);
+    }
+
+    return Math.max(1, capacity * 2); // Assume 2 shifts or shared desks for lower levels
 };
 
-// »æÖÆÍ·Ïñ (Ö§³ÖÍ¼Æ¬»æÖÆ)
+// ç»˜åˆ¶å¤´åƒ (æ”¯æŒå›¾ç‰‡ç»˜åˆ¶)
 export function drawAvatarHead(ctx: CanvasRenderingContext2D, x: number, y: number, size: number, sim: SimData) {
     let s = size;
 
-    // 1. ³¢ÊÔ»æÖÆÁ³²¿Í¼Æ¬
+    // 1. å°è¯•ç»˜åˆ¶è„¸éƒ¨å›¾ç‰‡
     const faceImg = getAsset(sim.appearance.face);
     if (faceImg) {
         ctx.drawImage(faceImg, x - s, y - s, s * 2, s * 2);
     } else {
-        // [»ØÍË] Ä¬ÈÏ»æÖÆÂß¼­
+        // [å›é€€] é»˜è®¤ç»˜åˆ¶é€»è¾‘
         ctx.fillStyle = sim.skinColor;
         ctx.fillRect(x - s, y - s, s * 2, s * 2);
 
-        // ÑÛ¾¦
+        // çœ¼ç›
         ctx.fillStyle = '#000';
         ctx.fillRect(x - s / 2, y - 1, 2, 2);
         ctx.fillRect(x + s / 2 - 2, y - 1, 2, 2);
     }
 
-    // 2. ³¢ÊÔ»æÖÆ·¢ĞÍÍ¼Æ¬
+    // 2. å°è¯•ç»˜åˆ¶å‘å‹å›¾ç‰‡
     const hairImg = getAsset(sim.appearance.hair);
     if (hairImg) {
-        // ·¢ĞÍÍ¼Æ¬Í¨³£ÉÔÎ¢´óÒ»µã»òÎ»ÖÃµ÷Õû£¬ÊÓÍ¼Æ¬ËØ²Ä¶ø¶¨
-        // ¼ÙÉèËØ²ÄÊÇÍêÕûµÄÍ·²¿·¢ĞÍ¸²¸Ç
+        // å‘å‹å›¾ç‰‡é€šå¸¸ç¨å¾®å¤§ä¸€ç‚¹æˆ–ä½ç½®è°ƒæ•´ï¼Œè§†å›¾ç‰‡ç´ æè€Œå®š
+        // å‡è®¾ç´ ææ˜¯å®Œæ•´çš„å¤´éƒ¨å‘å‹è¦†ç›–
         ctx.drawImage(hairImg, x - s-(s*0.25), y - s - (s * 0.3), s * 2.5, s * 2.5);
     } else {
-        // [»ØÍË] Ä¬ÈÏ»æÖÆÂß¼­
+        // [å›é€€] é»˜è®¤ç»˜åˆ¶é€»è¾‘
         ctx.fillStyle = sim.hairColor;
         ctx.fillRect(x - s, y - s - 2, s * 2, s * 0.6);
         if (sim.gender === 'F') {

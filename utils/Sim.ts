@@ -54,6 +54,8 @@ export class Sim {
     workPerformance: number;
     job: Job;
     dailyExpense: number;
+    dailyIncome: number; // [New]
+    isSideHustle: boolean = false; // [New] 是否正在搞副业
 
     // === 内部系数 ===
     metabolism: any;
@@ -105,32 +107,52 @@ export class Sim {
         this.skills = { cooking: 0, athletics: 0, music: 0, dancing: 0, logic: 0, creativity: 0, gardening: 0, fishing: 0 };
         this.relationships = {};
 
-        this.money = 2000 + Math.floor(Math.random() * 3000);
+        this.money = 1000 + Math.floor(Math.random() * 2000);
 
-        // Job Init Logic
+        // === 关键修复：先初始化这些属性，再调用 applyTraits ===
+        this.metabolism = {};
+        for (let key in BASE_DECAY) this.metabolism[key] = 1.0;
+        this.skillModifiers = {};
+        for (let key in this.skills) this.skillModifiers[key] = 1.0;
+        this.socialModifier = 1.0;
+
+        // 现在可以安全调用了
+        this.applyTraits();
+
+        // === Smart Career Choice ===
+        // Sim chooses career based on MBTI and Life Goal
+        let preferredType = '';
+        if (this.lifeGoal.includes('富翁') || this.mbti.includes('T')) preferredType = 'internet';
+        else if (this.lifeGoal.includes('博学') || this.mbti.includes('N')) preferredType = 'design';
+        else if (this.mbti.includes('E')) preferredType = 'business';
+        else preferredType = Math.random() > 0.5 ? 'store' : 'restaurant';
+
+        // Find available entry-level jobs (Level 1)
         const validJobs = JOBS.filter(j => {
             if (j.id === 'unemployed') return true;
+            if (j.level !== 1) return false; // Start from bottom
+            if (preferredType && j.companyType !== preferredType) return false;
+            
             const capacity = getJobCapacity(j);
             const currentCount = GameStore.sims.filter(s => s.job.id === j.id).length;
             return currentCount < capacity;
         });
 
-        if (validJobs.length > 0) {
-            this.job = validJobs[Math.floor(Math.random() * validJobs.length)];
-        } else {
-            this.job = JOBS.find(j => j.id === 'unemployed')!;
+        // Fallback to any level 1 job if preference full
+        let finalJobChoice: Job | undefined = validJobs.length > 0 ? validJobs[Math.floor(Math.random() * validJobs.length)] : undefined;
+        
+        if (!finalJobChoice) {
+             finalJobChoice = JOBS.find(j => j.id === 'unemployed');
         }
 
-        if (this.lifeGoal === '成为百万富翁' && Math.random() > 0.5) {
-            const devJob = JOBS.find(j => j.id === 'developer');
-            if (devJob) {
-                const cap = getJobCapacity(devJob);
-                const count = GameStore.sims.filter(s => s.job.id === 'developer').length;
-                if (count < cap) this.job = devJob;
-            }
+        // 安全兜底：防止 undefined
+        if (!finalJobChoice) {
+            finalJobChoice = { id: 'unemployed', title: '无业游民', level: 0, salary: 0, startHour: 0, endHour: 0, workDays: [] };
         }
 
+        this.job = finalJobChoice;
         this.dailyExpense = 0;
+        this.dailyIncome = 0; // [New] Init
         this.dailyBudget = 0;
         this.workPerformance = 0;
 
@@ -140,15 +162,7 @@ export class Sim {
         this.action = 'idle';
         this.actionTimer = 0;
 
-        this.metabolism = {};
-        for (let key in BASE_DECAY) this.metabolism[key] = 1.0;
-        this.skillModifiers = {};
-        for (let key in this.skills) this.skillModifiers[key] = 1.0;
-        this.socialModifier = 1.0;
-
-        this.applyTraits();
         this.calculateDailyBudget();
-
         GameStore.addLog(this, `搬进了社区。职位: ${this.job.title}`, 'sys');
     }
 
@@ -231,6 +245,31 @@ export class Sim {
             if (['drink', 'book'].includes(bestItem.id)) {
                 this.buyItem(bestItem);
             }
+        }
+        
+        // [New] Check for Resignation Logic (Daily Check)
+        this.checkCareerSatisfaction();
+    }
+    
+    checkCareerSatisfaction() {
+        if (this.job.id === 'unemployed') return;
+        
+        // Factors to quit: Low Mood, High Stress, Mismatch Personality, Rich enough
+        let quitScore = 0;
+        if (this.mood < 30) quitScore += 20;
+        if (this.hasBuff('stressed') || this.hasBuff('anxious')) quitScore += 30;
+        if (this.money > 10000) quitScore += 10; // I'm rich, I don't need this!
+        
+        // Personality Mismatch
+        if (this.job.companyType === 'internet' && this.mbti.includes('F')) quitScore += 10;
+        if (this.job.companyType === 'business' && this.mbti.includes('I')) quitScore += 15;
+        
+        if (Math.random() * 100 < quitScore && quitScore > 50) {
+            GameStore.addLog(this, `决定辞职... "这工作不适合我"`, 'sys');
+            this.job = JOBS.find(j => j.id === 'unemployed')!;
+            this.workPerformance = 0;
+            this.say("我不干了! 💢", 'bad');
+            this.addBuff(BUFFS.well_rested); // Relief
         }
     }
 
@@ -426,20 +465,22 @@ export class Sim {
 
         if (isWorkTime && this.action !== 'working' && this.action !== 'commuting') {
             let deskSearchLabel = '工位';
+            // Find desk logic ...
+            let searchLabels: string[] = [];
             if (this.job.companyType === 'internet') {
-                deskSearchLabel = this.job.level >= 4 ? 'CTO' : '开发';
+                searchLabels = this.job.level >= 4 ? ['CTO'] : ['开发'];
             } else if (this.job.companyType === 'design') {
-                deskSearchLabel = this.job.level >= 4 ? '总监' : '设计';
+                searchLabels = this.job.level >= 4 ? ['总监'] : ['设计'];
             } else if (this.job.companyType === 'business') {
-                deskSearchLabel = this.job.level >= 3 ? '经理' : '商务';
+                searchLabels = ['商务', '经理'];
             } else if (this.job.companyType === 'store') {
-                deskSearchLabel = '前台';
+                searchLabels = ['前台'];
             } else if (this.job.companyType === 'restaurant') {
-                deskSearchLabel = this.job.title === '厨师' ? '后厨' : '前台';
+                searchLabels = this.job.title.includes('厨') ? ['后厨'] : ['前台', '雅座']; // Waiters stand near tables or counter
             }
 
             const desk = FURNITURE.find(f =>
-                f.label.includes(deskSearchLabel) &&
+                searchLabels.some(l => f.label.includes(l)) &&
                 f.utility === 'work' &&
                 (!f.reserved || f.reserved === this.id) &&
                 !GameStore.sims.some(s => s.id !== this.id && s.interactionTarget?.id === f.id)
@@ -451,7 +492,8 @@ export class Sim {
                 this.action = 'commuting';
                 this.say("去上班 💼", 'act');
             } else {
-                this.target = { x: 800, y: 350 };
+                const randomSpot = { x: 800 + Math.random()*100, y: 350 + Math.random()*100 };
+                this.target = randomSpot;
                 this.action = 'commuting';
             }
         } else if (!isWorkTime && (this.action === 'working' || this.action === 'commuting')) {
@@ -459,33 +501,86 @@ export class Sim {
             this.target = null;
             this.interactionTarget = null;
             this.money += this.job.salary;
+            this.dailyIncome += this.job.salary; // [New] Add salary to daily income
             this.say(`下班! +$${this.job.salary}`, 'money');
             this.addBuff(BUFFS.stressed);
 
-            let dailyPerf = 10;
-            if (this.mood > 80) dailyPerf += 5;
-            if (this.hasBuff('well_rested')) dailyPerf += 5;
+            // [Modified] Performance Logic
+            let dailyPerf = 5; // Base lower
+            
+            // Skill Bonus
+            if (this.job.companyType === 'internet' && this.skills.logic > 50) dailyPerf += 5;
+            if (this.job.companyType === 'design' && this.skills.creativity > 50) dailyPerf += 5;
+            if (this.job.companyType === 'business' && this.skills.logic > 30) dailyPerf += 3;
+            
+            if (this.mood > 80) dailyPerf += 3;
+            if (this.hasBuff('well_rested')) dailyPerf += 3;
             if (this.needs.fun < 30) dailyPerf -= 5;
+            
             this.workPerformance += dailyPerf;
 
-            if (this.workPerformance > 300 && this.job.level < 5) {
+            // Promotion Check (Slower threshold)
+            if (this.workPerformance > 500 && this.job.level < 4) {
                 this.promote();
-                this.workPerformance = 0;
+                // Don't reset performance completely, keep some momentum
+                this.workPerformance = 100;
             }
         }
     }
 
     promote() {
         const nextLevel = JOBS.find(j => j.companyType === this.job.companyType && j.level === this.job.level + 1);
-        if (nextLevel) {
-            const cap = getJobCapacity(nextLevel);
-            const currentCount = GameStore.sims.filter(s => s.job.id === nextLevel.id).length;
+        if (!nextLevel) return;
 
-            if (currentCount < cap) {
+        const cap = getJobCapacity(nextLevel);
+        const currentHolders = GameStore.sims.filter(s => s.job.id === nextLevel.id);
+        
+        if (currentHolders.length < cap) {
+            // Smooth Promotion
+            this.job = nextLevel;
+            this.money += 1000;
+            this.dailyIncome += 1000; // [New] Bonus
+            GameStore.addLog(this, `升职了！现在是 ${nextLevel.title} (Lv.${nextLevel.level})`, 'sys');
+            this.say("升职啦! 🚀", 'act');
+            this.addBuff(BUFFS.promoted);
+        } else {
+            // PK Logic: Challenge existing holder
+            // Find weakest holder (lowest performance or just random)
+            const victim = currentHolders.sort((a, b) => a.workPerformance - b.workPerformance)[0];
+            
+            // Calculate PK Score
+            // My Score: Performance + Skill + Mood
+            let myScore = this.workPerformance + this.mood;
+            if (this.job.companyType === 'internet') myScore += this.skills.logic * 2;
+            else if (this.job.companyType === 'design') myScore += this.skills.creativity * 2;
+            else myScore += this.skills.logic + this.skills.athletics; // General
+            
+            // Victim Score
+            let vScore = victim.workPerformance + victim.mood;
+            if (victim.job.companyType === 'internet') vScore += victim.skills.logic * 2;
+            else if (victim.job.companyType === 'design') vScore += victim.skills.creativity * 2;
+            else vScore += victim.skills.logic + victim.skills.athletics;
+
+            if (myScore > vScore) {
+                // Success: Swap jobs!
+                const oldJob = this.job;
                 this.job = nextLevel;
-                this.money += 500;
-                GameStore.addLog(this, `升职了！现在是 ${nextLevel.title}`, 'sys');
-                this.say("升职啦! 🚀", 'act');
+                victim.job = oldJob; // Victim gets demoted to my old position
+                victim.workPerformance = 0; // Reset victim performance
+                
+                this.money += 1000;
+                this.dailyIncome += 1000; // [New] Bonus
+                this.addBuff(BUFFS.promoted);
+                victim.addBuff(BUFFS.demoted);
+                
+                GameStore.addLog(this, `PK 成功！取代了 ${victim.name} 成为 ${nextLevel.title}`, 'sys');
+                this.say("我赢了! 👑", 'act');
+                victim.say("可恶... 😭", 'bad');
+            } else {
+                // Failed
+                GameStore.addLog(this, `尝试晋升 ${nextLevel.title} 但 PK 失败了。`, 'sys');
+                this.workPerformance -= 100; // Penalty
+                this.say("还需要努力...", 'bad');
             }
         }
     }
@@ -596,9 +691,15 @@ export class Sim {
             else if (obj.utility === 'fishing') durationMinutes = 120;
             else if (obj.utility === 'cooking') durationMinutes = 90;
             else if (obj.utility === 'work') {
-                verb = "工作 💻";
-                this.action = "working";
-                durationMinutes = 480; 
+                // If it's a side hustle (unemployed working on PC), change verb and logic
+                if (this.isSideHustle) {
+                     verb = "接单赚外快 💻";
+                     durationMinutes = 180;
+                } else {
+                    verb = "工作 💻";
+                    this.action = "working";
+                    durationMinutes = 480; 
+                }
             }
             else {
                 let targetNeed = obj.utility;
@@ -626,7 +727,7 @@ export class Sim {
                 if (obj.label.includes('沙发')) verb = "葛优躺";
                 if (obj.label.includes('马桶')) verb = "方便";
                 if (obj.label.includes('淋浴')) verb = "洗澡";
-                if (obj.label.includes('电脑')) verb = "上网 ⌨️";
+                if (obj.label.includes('电脑') && !this.isSideHustle) verb = "上网 ⌨️";
             }
 
             this.actionTimer = minutes(durationMinutes);
@@ -639,6 +740,7 @@ export class Sim {
         this.interactionTarget = null;
         this.action = 'idle';
         this.actionTimer = 0;
+        this.isSideHustle = false;
     }
 
     finishAction() {
@@ -647,10 +749,46 @@ export class Sim {
             this.addBuff(BUFFS.well_rested);
         }
         if (this.action === 'eating') this.needs.hunger = 100;
+        
+        // [New] Side Hustle Income Logic
         if (this.action === 'using' && this.interactionTarget) {
             let u = this.interactionTarget.utility;
+            
+            // 如果是无业游民且标记为副业
+            if (this.isSideHustle) {
+                let earned = 0;
+                let skillUsed = '';
+                
+                if (this.interactionTarget.label.includes('电脑')) {
+                    // Writing / Coding
+                    skillUsed = this.skills.coding > this.skills.creativity ? 'coding' : 'writing';
+                    let skillVal = this.skills.logic; // simplify to use logic as base
+                    if (skillUsed === 'writing') skillVal = this.skills.creativity;
+                    
+                    earned = 50 + skillVal * 5; 
+                    this.skills.logic += 0.5;
+                    this.skills.creativity += 0.5;
+                } else if (u === 'fishing') {
+                    earned = 30 + this.skills.fishing * 8;
+                    this.skills.fishing += 1;
+                } else if (u === 'gardening') {
+                    earned = 20 + this.skills.gardening * 6;
+                    this.skills.gardening += 1;
+                }
+                
+                if (earned > 0) {
+                    earned = Math.floor(earned);
+                    this.money += earned;
+                    this.dailyIncome += earned; // [New] Add to daily income
+                    GameStore.addLog(this, `通过副业赚了 $${earned}`, 'money');
+                    this.say(`赚到了! +$${earned}`, 'money');
+                    this.addBuff(BUFFS.side_hustle_win);
+                }
+            }
+
             if (!u.startsWith('buy_') && this.needs[u] !== undefined && this.needs[u] > 90) this.needs[u] = 100;
         }
+        
         if (this.action === 'talking') this.needs.social = 100;
         this.reset();
     }

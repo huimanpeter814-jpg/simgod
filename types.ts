@@ -16,8 +16,8 @@ export interface Furniture {
   multiUser: boolean;
   gender: string;
   reserved?: string;
-  cost?: number; // Cost to use this furniture
-  tier?: string; // For cinema/restaurant tiers
+  cost?: number;
+  tier?: string;
   imagePath?: string;
 }
 
@@ -61,18 +61,18 @@ export interface Job {
   id: string;
   title: string;
   level: number;
-  salary: number; // Daily salary
+  salary: number;
   startHour: number;
   endHour: number;
-  workDays: number[]; // [1, 2, 3, 4, 5] for Mon-Fri
-  companyType?: string; // 'design', 'business', 'internet', 'store', 'restaurant'
+  workDays: number[]; 
+  companyType?: string; 
 }
 
 export interface Buff {
   id: string;
   label: string;
   type: 'good' | 'bad' | 'neutral';
-  duration: number; // In game minutes
+  duration: number;
   source: string;
 }
 
@@ -102,19 +102,21 @@ export interface SimData {
   skills: Skills;
   relationships: Record<string, Relationship>;
   
-  // Economy & Career
   money: number;
-  dailyBudget: number; // Calculated daily based on personality
-  workPerformance: number; // Accumulates for promotion
+  dailyBudget: number;
+  workPerformance: number;
   job: Job;
   dailyExpense: number;
+  dailyIncome: number; // [New] Added daily income tracking
+  isSideHustle?: boolean;
   
-  // Status
   buffs: Buff[];
-  mood: number; // 0-100
+  mood: number;
 
   action: string;
   bubble?: { text: string | null; type: string; timer: number };
+  target?: Vector2 | null;
+  interactionTarget?: any;
 }
 
 export interface LogEntry {
@@ -128,11 +130,11 @@ export interface LogEntry {
 }
 
 export interface GameTime {
-  day: number;      // 累计天数
+  day: number;
   hour: number;
   minute: number;
   speed: number;
-  weekday: number;  // 1-7 (1=周一, 7=周日)
-  month: number;    // 1-12
-  date: number;     // 1-30 (每月30天简化版)
+  weekday: number;
+  month: number;
+  date: number;
 }
