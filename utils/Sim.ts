@@ -5,20 +5,21 @@ import { minutes, getJobCapacity } from './simulationHelpers';
 import { SocialLogic } from './logic/social';
 import { DecisionLogic } from './logic/decision';
 
-// [New] 定义各需求从 0 恢复到 100 所需的标准游戏分钟数
 const RESTORE_TIMES: Record<string, number> = {
-    bladder: 15,      // 上厕所很快
-    hygiene: 25,      // 洗澡稍慢
-    hunger: 45,       // 吃饭适中
-    energy_sleep: 420,// 睡觉需要 7 小时
-    energy_nap: 60,   // 小憩 1 小时
-    fun: 90,          // 娱乐 1.5 小时
-    social: 60,       // 社交 1 小时
+    bladder: 15,
+    hygiene: 25,
+    hunger: 45,
+    energy_sleep: 420,
+    energy_nap: 60,
+    fun: 90,
+    social: 60,
+    art: 120, // [New]
+    play: 60, // [New]
     default: 60
 };
 
 export class Sim {
-    // === 基础属性 ===
+    // ... (Keep existing properties)
     id: string;
     pos: Vector2;
     prevPos: Vector2; 
@@ -27,13 +28,11 @@ export class Sim {
     gender: 'M' | 'F';
     name: string;
     
-    // === 外观 ===
     skinColor: string;
     hairColor: string;
     clothesColor: string;
     appearance: SimAppearance;
 
-    // === 性格与身份 ===
     mbti: string;
     zodiac: any;
     age: number;
@@ -41,28 +40,24 @@ export class Sim {
     orientation: string;
     faithfulness: number;
 
-    // === 状态 ===
     needs: any;
     skills: any;
     relationships: any;
     buffs: Buff[];
     mood: number;
     
-    // === 经济与职业 ===
     money: number;
     dailyBudget: number;
     workPerformance: number;
     job: Job;
     dailyExpense: number;
-    dailyIncome: number; // [New]
-    isSideHustle: boolean = false; // [New] 是否正在搞副业
+    dailyIncome: number; 
+    isSideHustle: boolean = false;
 
-    // === 内部系数 ===
     metabolism: any;
     skillModifiers: Record<string, number>;
     socialModifier: number;
 
-    // === 行为控制 ===
     action: string;
     actionTimer: number;
     interactionTarget: any = null;
@@ -109,28 +104,24 @@ export class Sim {
 
         this.money = 1000 + Math.floor(Math.random() * 2000);
 
-        // === 关键修复：先初始化这些属性，再调用 applyTraits ===
         this.metabolism = {};
         for (let key in BASE_DECAY) this.metabolism[key] = 1.0;
         this.skillModifiers = {};
         for (let key in this.skills) this.skillModifiers[key] = 1.0;
         this.socialModifier = 1.0;
 
-        // 现在可以安全调用了
         this.applyTraits();
 
-        // === Smart Career Choice ===
-        // Sim chooses career based on MBTI and Life Goal
+        // Job Logic ...
         let preferredType = '';
         if (this.lifeGoal.includes('富翁') || this.mbti.includes('T')) preferredType = 'internet';
         else if (this.lifeGoal.includes('博学') || this.mbti.includes('N')) preferredType = 'design';
         else if (this.mbti.includes('E')) preferredType = 'business';
         else preferredType = Math.random() > 0.5 ? 'store' : 'restaurant';
 
-        // Find available entry-level jobs (Level 1)
         const validJobs = JOBS.filter(j => {
             if (j.id === 'unemployed') return true;
-            if (j.level !== 1) return false; // Start from bottom
+            if (j.level !== 1) return false; 
             if (preferredType && j.companyType !== preferredType) return false;
             
             const capacity = getJobCapacity(j);
@@ -138,21 +129,13 @@ export class Sim {
             return currentCount < capacity;
         });
 
-        // Fallback to any level 1 job if preference full
         let finalJobChoice: Job | undefined = validJobs.length > 0 ? validJobs[Math.floor(Math.random() * validJobs.length)] : undefined;
-        
-        if (!finalJobChoice) {
-             finalJobChoice = JOBS.find(j => j.id === 'unemployed');
-        }
-
-        // 安全兜底：防止 undefined
-        if (!finalJobChoice) {
-            finalJobChoice = { id: 'unemployed', title: '无业游民', level: 0, salary: 0, startHour: 0, endHour: 0, workDays: [] };
-        }
+        if (!finalJobChoice) finalJobChoice = JOBS.find(j => j.id === 'unemployed')!;
+        if (!finalJobChoice) finalJobChoice = { id: 'unemployed', title: '无业游民', level: 0, salary: 0, startHour: 0, endHour: 0, workDays: [] };
 
         this.job = finalJobChoice;
         this.dailyExpense = 0;
-        this.dailyIncome = 0; // [New] Init
+        this.dailyIncome = 0;
         this.dailyBudget = 0;
         this.workPerformance = 0;
 
@@ -224,6 +207,11 @@ export class Sim {
                 if (item.needs.fun && this.needs.fun < 60) score += item.needs.fun * 2;
                 if (item.needs.energy && this.needs.energy < 50 && item.needs.energy > 0) score += 20;
             }
+            // Logic for museum ticket
+            if (item.id === 'museum_ticket' && (this.mbti.includes('N') || this.skills.creativity > 20)) {
+                score += 40;
+            }
+            
             if (item.skill) {
                 if (this.lifeGoal.includes('博学') || this.lifeGoal.includes('富翁')) score += 30;
                 if (this.mbti.includes('N') && item.skill === 'logic') score += 20;
@@ -242,25 +230,22 @@ export class Sim {
         });
 
         if (bestItem) {
-            if (['drink', 'book'].includes(bestItem.id)) {
+            if (['drink', 'book', 'museum_ticket'].includes(bestItem.id)) {
                 this.buyItem(bestItem);
             }
         }
         
-        // [New] Check for Resignation Logic (Daily Check)
         this.checkCareerSatisfaction();
     }
     
     checkCareerSatisfaction() {
         if (this.job.id === 'unemployed') return;
         
-        // Factors to quit: Low Mood, High Stress, Mismatch Personality, Rich enough
         let quitScore = 0;
         if (this.mood < 30) quitScore += 20;
         if (this.hasBuff('stressed') || this.hasBuff('anxious')) quitScore += 30;
-        if (this.money > 10000) quitScore += 10; // I'm rich, I don't need this!
+        if (this.money > 10000) quitScore += 10; 
         
-        // Personality Mismatch
         if (this.job.companyType === 'internet' && this.mbti.includes('F')) quitScore += 10;
         if (this.job.companyType === 'business' && this.mbti.includes('I')) quitScore += 15;
         
@@ -269,7 +254,7 @@ export class Sim {
             this.job = JOBS.find(j => j.id === 'unemployed')!;
             this.workPerformance = 0;
             this.say("我不干了! 💢", 'bad');
-            this.addBuff(BUFFS.well_rested); // Relief
+            this.addBuff(BUFFS.well_rested);
         }
     }
 
@@ -291,6 +276,12 @@ export class Sim {
         }
 
         if (item.buff) this.addBuff(BUFFS[item.buff as keyof typeof BUFFS]);
+        
+        // Special Log for tickets
+        if (item.id === 'museum_ticket') {
+             this.say("去看展 🎨", 'act');
+             this.addBuff(BUFFS.art_inspired);
+        }
 
         let logSuffix = "";
         if (item.rel) {
@@ -305,7 +296,7 @@ export class Sim {
             }
         }
 
-        this.say(`💸 ${item.label}`, 'act');
+        if (item.id !== 'museum_ticket') this.say(`💸 ${item.label}`, 'act');
         GameStore.addLog(this, `购买了 ${item.label} -$${item.cost}${logSuffix}`, 'money');
     }
 
@@ -320,7 +311,6 @@ export class Sim {
         this.checkSchedule();
         this.updateMood();
 
-        // 1. 自然衰减
         if (this.action !== 'sleeping') this.needs.energy -= BASE_DECAY.energy * this.metabolism.energy * f;
         if (this.action !== 'eating') this.needs.hunger -= BASE_DECAY.hunger * this.metabolism.hunger * f;
         if (this.action !== 'watching_movie') this.needs.fun -= BASE_DECAY.fun * this.metabolism.fun * f;
@@ -328,19 +318,16 @@ export class Sim {
         this.needs.hygiene -= BASE_DECAY.hygiene * this.metabolism.hygiene * f;
         if (this.action !== 'talking' && this.action !== 'watching_movie') this.needs.social -= BASE_DECAY.social * this.metabolism.social * f;
 
-        // 2. 行为恢复: 核心修复逻辑
         const getRate = (mins: number) => (100 / (mins * 60)) * dt;
 
         if (this.action === 'working') {
             this.needs.energy -= BASE_DECAY.energy * 0.5 * f;
             this.needs.fun -= BASE_DECAY.fun * 0.8 * f;
-            // 缓慢恢复以免在工作中饿死
             const slowRefill = getRate(240); 
             if (this.needs.hunger < 30) this.needs.hunger += slowRefill;
             if (this.needs.bladder < 30) this.needs.bladder += slowRefill;
             if (this.needs.hygiene < 30) this.needs.hygiene += slowRefill;
             if (this.needs.social < 30) this.needs.social += slowRefill;
-            
             if (this.interactionTarget) this.pos = { ...this.interactionTarget };
         }
         else if (this.action === 'sleeping') {
@@ -359,13 +346,6 @@ export class Sim {
         else if (this.action === 'watching_movie') {
             this.needs.fun += getRate(120);
             this.needs.energy -= getRate(600);
-            const loverId = Object.keys(this.relationships).find(id => this.relationships[id].isLover);
-            if (loverId) {
-                const lover = GameStore.sims.find(s => s.id === loverId);
-                if (lover && lover.action === 'watching_movie') {
-                    this.needs.social += getRate(60);
-                }
-            }
         }
         else if (this.action === 'phone') {
             this.needs.fun += getRate(180);
@@ -391,6 +371,17 @@ export class Sim {
             else if (u === 'cooking') {
                 this.skills.cooking += 0.05 * f;
             }
+            else if (u === 'art') {
+                // [New] Viewing Art
+                this.needs.fun += getRate(RESTORE_TIMES.art);
+                this.skills.creativity += 0.03 * f;
+            }
+            else if (u === 'play') {
+                // [New] Playing at playground
+                this.needs.fun += getRate(RESTORE_TIMES.play);
+                this.needs.energy -= getRate(180);
+                this.needs.hygiene -= getRate(300);
+            }
             else {
                 let time = RESTORE_TIMES[u] || RESTORE_TIMES.default;
                 
@@ -408,11 +399,14 @@ export class Sim {
             }
         }
 
-        // 3. 限制范围与结束检查
         for (let k in this.needs) this.needs[k] = Math.max(0, Math.min(100, this.needs[k]));
 
-        if (this.action === 'using' && this.interactionTarget && ['bladder', 'hygiene', 'energy'].includes(this.interactionTarget.utility)) {
-             if (this.needs[this.interactionTarget.utility] >= 100) this.finishAction();
+        if (this.action === 'using' && this.interactionTarget) {
+            const u = this.interactionTarget.utility;
+             if (['bladder', 'hygiene', 'energy'].includes(u) && this.needs[u] >= 100) this.finishAction();
+             if (u === 'fun' && this.needs.fun >= 100) this.finishAction();
+             if (u === 'play' && this.needs.fun >= 100) this.finishAction();
+             if (u === 'art' && this.needs.fun >= 100) this.finishAction();
         }
 
         if (this.actionTimer > 0) {
@@ -422,7 +416,6 @@ export class Sim {
             DecisionLogic.decideAction(this);
         }
 
-        // 4. 移动逻辑
         if (this.target) {
             const dist = Math.sqrt(Math.pow(this.pos.x - this.target.x, 2) + Math.pow(this.pos.y - this.target.y, 2));
             if (dist < 8) {
@@ -451,21 +444,15 @@ export class Sim {
     checkSchedule() {
         if (this.job.id === 'unemployed') return;
 
-        // [New] 检查是否是节日
         const isHoliday = HOLIDAYS.some(h => h.month === GameStore.time.month && h.day === GameStore.time.date);
-        
-        // [New] 检查是否是工作日
         const isWorkDay = this.job.workDays.includes(GameStore.time.weekday);
 
-        // 如果是节日或者不是工作日，则今天放假
         if (isHoliday || !isWorkDay) return;
 
         const currentHour = GameStore.time.hour;
         const isWorkTime = currentHour >= this.job.startHour && currentHour < this.job.endHour;
 
         if (isWorkTime && this.action !== 'working' && this.action !== 'commuting') {
-            let deskSearchLabel = '工位';
-            // Find desk logic ...
             let searchLabels: string[] = [];
             if (this.job.companyType === 'internet') {
                 searchLabels = this.job.level >= 4 ? ['CTO'] : ['开发'];
@@ -476,7 +463,7 @@ export class Sim {
             } else if (this.job.companyType === 'store') {
                 searchLabels = ['前台'];
             } else if (this.job.companyType === 'restaurant') {
-                searchLabels = this.job.title.includes('厨') ? ['后厨'] : ['前台', '雅座']; // Waiters stand near tables or counter
+                searchLabels = this.job.title.includes('厨') ? ['后厨'] : ['前台', '雅座']; 
             }
 
             const desk = FURNITURE.find(f =>
@@ -501,14 +488,12 @@ export class Sim {
             this.target = null;
             this.interactionTarget = null;
             this.money += this.job.salary;
-            this.dailyIncome += this.job.salary; // [New] Add salary to daily income
+            this.dailyIncome += this.job.salary; 
             this.say(`下班! +$${this.job.salary}`, 'money');
             this.addBuff(BUFFS.stressed);
 
-            // [Modified] Performance Logic
-            let dailyPerf = 5; // Base lower
+            let dailyPerf = 5; 
             
-            // Skill Bonus
             if (this.job.companyType === 'internet' && this.skills.logic > 50) dailyPerf += 5;
             if (this.job.companyType === 'design' && this.skills.creativity > 50) dailyPerf += 5;
             if (this.job.companyType === 'business' && this.skills.logic > 30) dailyPerf += 3;
@@ -519,10 +504,8 @@ export class Sim {
             
             this.workPerformance += dailyPerf;
 
-            // Promotion Check (Slower threshold)
             if (this.workPerformance > 500 && this.job.level < 4) {
                 this.promote();
-                // Don't reset performance completely, keep some momentum
                 this.workPerformance = 100;
             }
         }
@@ -536,40 +519,33 @@ export class Sim {
         const currentHolders = GameStore.sims.filter(s => s.job.id === nextLevel.id);
         
         if (currentHolders.length < cap) {
-            // Smooth Promotion
             this.job = nextLevel;
             this.money += 1000;
-            this.dailyIncome += 1000; // [New] Bonus
+            this.dailyIncome += 1000; 
             GameStore.addLog(this, `升职了！现在是 ${nextLevel.title} (Lv.${nextLevel.level})`, 'sys');
             this.say("升职啦! 🚀", 'act');
             this.addBuff(BUFFS.promoted);
         } else {
-            // PK Logic: Challenge existing holder
-            // Find weakest holder (lowest performance or just random)
             const victim = currentHolders.sort((a, b) => a.workPerformance - b.workPerformance)[0];
             
-            // Calculate PK Score
-            // My Score: Performance + Skill + Mood
             let myScore = this.workPerformance + this.mood;
             if (this.job.companyType === 'internet') myScore += this.skills.logic * 2;
             else if (this.job.companyType === 'design') myScore += this.skills.creativity * 2;
-            else myScore += this.skills.logic + this.skills.athletics; // General
+            else myScore += this.skills.logic + this.skills.athletics; 
             
-            // Victim Score
             let vScore = victim.workPerformance + victim.mood;
             if (victim.job.companyType === 'internet') vScore += victim.skills.logic * 2;
             else if (victim.job.companyType === 'design') vScore += victim.skills.creativity * 2;
             else vScore += victim.skills.logic + victim.skills.athletics;
 
             if (myScore > vScore) {
-                // Success: Swap jobs!
                 const oldJob = this.job;
                 this.job = nextLevel;
-                victim.job = oldJob; // Victim gets demoted to my old position
-                victim.workPerformance = 0; // Reset victim performance
+                victim.job = oldJob; 
+                victim.workPerformance = 0; 
                 
                 this.money += 1000;
-                this.dailyIncome += 1000; // [New] Bonus
+                this.dailyIncome += 1000;
                 this.addBuff(BUFFS.promoted);
                 victim.addBuff(BUFFS.demoted);
                 
@@ -577,15 +553,13 @@ export class Sim {
                 this.say("我赢了! 👑", 'act');
                 victim.say("可恶... 😭", 'bad');
             } else {
-                // Failed
                 GameStore.addLog(this, `尝试晋升 ${nextLevel.title} 但 PK 失败了。`, 'sys');
-                this.workPerformance -= 100; // Penalty
+                this.workPerformance -= 100; 
                 this.say("还需要努力...", 'bad');
             }
         }
     }
 
-    // === State Management ===
     updateBuffs(minutesPassed: number) {
         this.buffs.forEach(b => {
             b.duration -= minutesPassed;
@@ -616,7 +590,6 @@ export class Sim {
         this.mood = Math.max(0, Math.min(100, base));
     }
 
-    // 代理方法
     getRelLabel(rel: any) {
         return SocialLogic.getRelLabel(rel);
     }
@@ -690,8 +663,19 @@ export class Sim {
             else if (obj.utility === 'gardening') durationMinutes = 90;
             else if (obj.utility === 'fishing') durationMinutes = 120;
             else if (obj.utility === 'cooking') durationMinutes = 90;
+            else if (obj.utility === 'art') {
+                verb = "看展览 🎨";
+                durationMinutes = 90;
+                this.say(verb, 'act');
+                this.addBuff(BUFFS.art_inspired);
+            }
+            else if (obj.utility === 'play') {
+                verb = "玩耍 🎈";
+                durationMinutes = 45;
+                this.say(verb, 'act');
+                this.addBuff(BUFFS.playful);
+            }
             else if (obj.utility === 'work') {
-                // If it's a side hustle (unemployed working on PC), change verb and logic
                 if (this.isSideHustle) {
                      verb = "接单赚外快 💻";
                      durationMinutes = 180;
@@ -725,7 +709,7 @@ export class Sim {
                 }
                 
                 if (obj.label.includes('沙发')) verb = "葛优躺";
-                if (obj.label.includes('马桶')) verb = "方便";
+                if (obj.label.includes('马桶') || obj.label.includes('公厕')) verb = "方便";
                 if (obj.label.includes('淋浴')) verb = "洗澡";
                 if (obj.label.includes('电脑') && !this.isSideHustle) verb = "上网 ⌨️";
             }
@@ -750,19 +734,16 @@ export class Sim {
         }
         if (this.action === 'eating') this.needs.hunger = 100;
         
-        // [New] Side Hustle Income Logic
         if (this.action === 'using' && this.interactionTarget) {
             let u = this.interactionTarget.utility;
             
-            // 如果是无业游民且标记为副业
             if (this.isSideHustle) {
                 let earned = 0;
                 let skillUsed = '';
                 
                 if (this.interactionTarget.label.includes('电脑')) {
-                    // Writing / Coding
                     skillUsed = this.skills.coding > this.skills.creativity ? 'coding' : 'writing';
-                    let skillVal = this.skills.logic; // simplify to use logic as base
+                    let skillVal = this.skills.logic; 
                     if (skillUsed === 'writing') skillVal = this.skills.creativity;
                     
                     earned = 50 + skillVal * 5; 
@@ -779,7 +760,7 @@ export class Sim {
                 if (earned > 0) {
                     earned = Math.floor(earned);
                     this.money += earned;
-                    this.dailyIncome += earned; // [New] Add to daily income
+                    this.dailyIncome += earned; 
                     GameStore.addLog(this, `通过副业赚了 $${earned}`, 'money');
                     this.say(`赚到了! +$${earned}`, 'money');
                     this.addBuff(BUFFS.side_hustle_win);

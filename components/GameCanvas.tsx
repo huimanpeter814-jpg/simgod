@@ -13,6 +13,7 @@ const GameCanvas: React.FC = () => {
     const [camera, setCamera] = useState({ x: 0, y: 0 });
     const isDragging = useRef(false);
     const lastMousePos = useRef({ x: 0, y: 0 });
+    const hasDragged = useRef(false); // [新增] 用来区分点击和拖拽
 
     // Game Loop State
     const lastTimeRef = useRef<number>(0);
@@ -320,26 +321,48 @@ const GameCanvas: React.FC = () => {
 
     // Mouse Controls
     const handleMouseDown = (e: React.MouseEvent) => {
-        if (e.button === 1) { // Middle click drag
-            e.preventDefault();
+        // 改为侦听左键 (0)
+        if (e.button === 0) { 
+            // e.preventDefault(); // 左键通常不需要 preventDefault，除非你想阻止选中文字等
             isDragging.current = true;
+            hasDragged.current = false; // 重置拖拽标记
             lastMousePos.current = { x: e.clientX, y: e.clientY };
-            return;
         }
-
-        if (e.button === 0) { // Left click select
+    };
+    
+    const handleMouseMove = (e: React.MouseEvent) => {
+        lastMousePos.current = { x: e.clientX, y: e.clientY };
+    
+        if (isDragging.current) {
+            // [新增] 检测是否有实质性移动
+            if (Math.abs(e.movementX) > 0 || Math.abs(e.movementY) > 0) {
+                hasDragged.current = true;
+            }
+    
+            const moveX = e.movementX;
+            const moveY = e.movementY;
+            setCamera(prev => ({ x: prev.x - moveX, y: prev.y - moveY }));
+        }
+    };
+    
+    const handleMouseUp = (e: React.MouseEvent) => {
+        isDragging.current = false;
+    
+        // [逻辑移动] 只有是左键 且 没有发生拖拽时，才执行选中逻辑
+        if (e.button === 0 && !hasDragged.current) {
             const canvas = canvasRef.current;
             if (!canvas) return;
-
+    
             const rect = canvas.getBoundingClientRect();
             const mouseX = e.clientX - rect.left;
             const mouseY = e.clientY - rect.top;
             const worldX = mouseX + camera.x;
             const worldY = mouseY + camera.y;
-
+    
             let hit: string | null = null;
             for (let i = GameStore.sims.length - 1; i >= 0; i--) {
                 let s = GameStore.sims[i];
+                // 判定点击范围
                 if (Math.abs(worldX - s.pos.x) < 30 && Math.abs(worldY - (s.pos.y - 20)) < 40) {
                     hit = s.id; break;
                 }
@@ -348,20 +371,6 @@ const GameCanvas: React.FC = () => {
             GameStore.notify();
         }
     };
-
-    const handleMouseMove = (e: React.MouseEvent) => {
-        // Always track mouse for hover effects even if not dragging
-        lastMousePos.current = { x: e.clientX, y: e.clientY };
-
-        if (isDragging.current) {
-            // React synthetic events have movementX/Y
-            const moveX = e.movementX;
-            const moveY = e.movementY;
-            setCamera(prev => ({ x: prev.x - moveX, y: prev.y - moveY }));
-        }
-    };
-
-    const handleMouseUp = () => { isDragging.current = false; };
 
     return (
         <canvas
