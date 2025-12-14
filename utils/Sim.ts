@@ -58,7 +58,11 @@ export class Sim {
         };
         this.prevPos = { ...this.pos }; 
         
-        this.speed = (4.0 + Math.random() * 1.5) * 1.5;
+        // [修复 3] 提升移动速度，适应大地图，增加社交效率
+        // 原速: (4.0 + random * 1.5) * 1.5 ~= 6.75 ~ 9.0
+        // 新速: (6.0 + random * 2.0) * 2.5 ~= 15.0 ~ 20.0
+        this.speed = (6.0 + Math.random() * 2.0) * 2.5;
+
         this.gender = Math.random() > 0.5 ? 'M' : 'F';
         
         this.name = this.generateName();
@@ -173,8 +177,6 @@ export class Sim {
     }
 
     checkSpending() {
-        // [修复 1] 防止梦游消费
-        // 只有当 Sim 处于闲逛或发呆状态时，才允许自主消费
         if (this.action !== 'wandering' && this.action !== 'idle') {
             return;
         }
@@ -267,11 +269,10 @@ export class Sim {
 
         if (item.buff) this.addBuff(BUFFS[item.buff as keyof typeof BUFFS]);
 
-        // 如果买了美术馆门票，立即强制去找艺术品
         if (item.id === 'museum_ticket') {
              this.say("买票去看展 🎨", 'act');
              this.addBuff(BUFFS.art_inspired);
-             DecisionLogic.findObject(this, 'art'); // 强制跳转逻辑
+             DecisionLogic.findObject(this, 'art'); 
         }
 
         let logSuffix = "";
@@ -311,7 +312,6 @@ export class Sim {
         this.checkSchedule();
         this.updateMood();
 
-        // 基础代谢
         if (this.action !== 'sleeping') this.needs.energy -= BASE_DECAY.energy * this.metabolism.energy * f;
         if (this.action !== 'eating') this.needs.hunger -= BASE_DECAY.hunger * this.metabolism.hunger * f;
         if (this.action !== 'watching_movie') this.needs.fun -= BASE_DECAY.fun * this.metabolism.fun * f;
@@ -329,7 +329,7 @@ export class Sim {
             this.needs.social += getRate(240);
         }
         else if (this.action === 'commuting') {
-            // commuting logic
+            // commuting logic handled in movement block
         }
         else if (this.interactionTarget) {
             const obj = this.interactionTarget;
@@ -354,18 +354,12 @@ export class Sim {
 
         for (let k in this.needs) this.needs[k] = Math.max(0, Math.min(100, this.needs[k]));
 
-        // 检查动作完成
         if (this.action === 'sleeping' && this.needs.energy >= 100) this.finishAction();
-        // [修复 2] 餐厅秒退修复
-        // 删除 "&& this.needs.hunger >= 100"，让 eating 必须持续到 timer 结束
-        // 这样 Sim 会在餐桌前待满规定的时间
         else if (this.action === 'eating' && this.actionTimer <= 0) this.finishAction();
         else if (this.action === 'using' && this.interactionTarget) {
              if (this.interactionTarget.utility) {
                  const u = this.interactionTarget.utility;
                  if (['bladder', 'hygiene', 'energy'].includes(u) && this.needs[u] >= 100) this.finishAction();
-                 // 娱乐类、艺术类活动，尽量让 Sim 玩久一点，直到 timer 结束，除非非常紧迫
-                 // if (u === 'fun' && this.needs.fun >= 100) this.finishAction();
              }
         }
 
@@ -373,8 +367,6 @@ export class Sim {
             this.actionTimer -= dt;
             if (this.actionTimer <= 0) this.finishAction();
         } else if (!this.target) {
-            // [修复 4] 原地太空步修复
-            // 如果 timer 结束且没有 target，强制重置状态为闲逛或待机
             if (this.action === 'moving') this.action = 'idle';
             DecisionLogic.decideAction(this);
         }
@@ -384,24 +376,26 @@ export class Sim {
             if (dist < 8) {
                 this.pos = this.target;
                 this.target = null;
-                // 到达目的地，开始交互
                 this.startInteraction();
             } else {
-                // 移动逻辑
                 const dx = this.target.x - this.pos.x;
                 const dy = this.target.y - this.pos.y;
                 const angle = Math.atan2(dy, dx);
                 let speedMod = 1.0;
                 if (this.mood > 90) speedMod = 1.3;
                 if (this.mood < 30) speedMod = 0.7;
+                
                 let nextX = this.pos.x + Math.cos(angle) * this.speed * speedMod * (dt * 0.1);
                 let nextY = this.pos.y + Math.sin(angle) * this.speed * speedMod * (dt * 0.1);
                 nextX = Math.max(10, Math.min(CONFIG.CANVAS_W - 10, nextX));
                 nextY = Math.max(10, Math.min(CONFIG.CANVAS_H - 10, nextY));
                 this.pos.x = nextX;
                 this.pos.y = nextY;
-                // [修复 4] 确保移动时状态正确
-                this.action = 'moving';
+                
+                // [修复 2] 如果是通勤状态，不要将其覆盖为普通的 moving，防止 checkSchedule 再次触发
+                if (this.action !== 'commuting') {
+                    this.action = 'moving';
+                }
             }
         }
         if (this.bubble.timer > 0) this.bubble.timer -= dt;
@@ -418,33 +412,28 @@ export class Sim {
         const currentHour = GameStore.time.hour;
         const isWorkTime = currentHour >= this.job.startHour && currentHour < this.job.endHour;
 
+        // [修复 2] 增加对 commuting 状态的检查，防止在通勤途中被重复指派位置导致“原地太空步”
         if (isWorkTime && this.action !== 'working' && this.action !== 'commuting') {
             let searchLabels: string[] = [];
-            // [修复] 默认搜索 work 和 work_group
             let searchCategories: string[] = ['work', 'work_group']; 
 
             if (this.job.companyType === 'internet') {
-                searchLabels = this.job.level >= 4 ? ['红木班台'] : ['升降办公桌', '控制台'];
+                searchLabels = this.job.level >= 4 ? ['老板椅'] : ['码农工位', '控制台'];
             } else if (this.job.companyType === 'design') {
                 searchLabels = ['画架'];
                 searchCategories.push('paint');
             } else if (this.job.companyType === 'business') {
-                searchLabels = this.job.level >= 4 ? ['红木班台'] : ['会议桌'];
+                searchLabels = this.job.level >= 4 ? ['老板椅'] : ['商务工位'];
             } else if (this.job.companyType === 'store') {
-                // [关键修复] 移除 '售票' (对应 ticket_booth/pay)，只保留服务台 (work)
                 searchLabels = ['服务台', '影院服务台']; 
-                // searchCategories.push('pay'); // 移除 pay，防止员工去当顾客
             } else if (this.job.companyType === 'restaurant') {
                 if (this.job.title.includes('厨')) {
                     searchLabels = ['后厨'];
                 } else {
-                    // [关键修复] 移除 '雅座' (对应 eat_out/cost)，防止员工付费上班
                     searchLabels = ['餐厅前台'];
-                    // searchCategories.push('eat_out'); // 移除 eat_out
                 }
             }
 
-            // [修复] 聚合所有类别的家具
             let candidateFurniture: Furniture[] = [];
             searchCategories.forEach(cat => {
                 const list = GameStore.furnitureIndex.get(cat);
@@ -454,12 +443,13 @@ export class Sim {
             const desk = candidateFurniture.find(f =>
                 searchLabels.some(l => f.label.includes(l)) &&
                 (!f.reserved || f.reserved === this.id) &&
-                // [修复] 如果是多人家具(multiUser)，不检查占用
                 (f.multiUser || !GameStore.sims.some(s => s.id !== this.id && s.interactionTarget?.id === f.id))
             );
+            // checkSchedule 内添加：
+            console.log(`${this.name} searching:`, searchLabels, 'Found:', desk ? desk.label : 'NONE');
+            // 或 GameStore.addLog(this, `搜索工位: ${searchLabels.join(',')} → ${desk ? '找到' : '失败'}`, 'sys');
 
             if (desk) {
-                // 如果是多人家具，增加一点位置随机偏移，避免所有人重叠
                 let targetX = desk.x + desk.w / 2;
                 let targetY = desk.y + desk.h / 2;
                 if (desk.multiUser) {
@@ -469,17 +459,19 @@ export class Sim {
 
                 this.target = { x: targetX, y: targetY };
                 this.interactionTarget = desk;
+                
+                // [修复 1] 强制开始通勤，清除之前的行为计时器
                 this.action = 'commuting';
+                this.actionTimer = 0; // 关键：清除睡觉等长耗时动作的倒计时
                 this.say("去上班 💼", 'act');
             } else {
-                // 找不到工位时，去地图左上角待机
                 const randomSpot = { x: 50 + Math.random()*400, y: 50 + Math.random()*300 };
                 this.target = randomSpot;
                 this.action = 'commuting';
+                this.actionTimer = 0; // 关键：清除倒计时
                 this.say("没位置了...", 'bad');
             }
         } else if (!isWorkTime && (this.action === 'working' || this.action === 'commuting')) {
-            // 下班逻辑保持不变
             this.action = 'idle';
             this.target = null;
             this.interactionTarget = null;
@@ -501,7 +493,9 @@ export class Sim {
                 this.promote();
                 this.workPerformance = 100;
             }
+            
         }
+        
     }
 
     promote() {
@@ -631,13 +625,10 @@ export class Sim {
                 this.dailyExpense += obj.cost;
                 this.dailyBudget -= obj.cost;
                 
-                // 明确记录买了什么
-                // 比如 "消费: 豪华雅座 -$60" 或 "消费: 当季新款 -$100"
                 GameStore.addLog(this, `消费: ${obj.label} -$${obj.cost}`, 'money');
                 this.say(`买! -${obj.cost}`, 'money');
             }
 
-            // [优化] 使用导入的策略表
             let handler = INTERACTIONS[obj.utility];
             if (!handler) {
                  const prefixKey = Object.keys(INTERACTIONS).find(k => k.endsWith('_') && obj.utility.startsWith(k));
@@ -645,7 +636,6 @@ export class Sim {
             }
             if (!handler) handler = INTERACTIONS['default'];
 
-            // 1. 执行开始钩子
             if (handler && handler.onStart) {
                 const success = handler.onStart(this, obj);
                 if (!success) {
@@ -653,10 +643,9 @@ export class Sim {
                     return;
                 }
             } else {
-                this.action = 'using'; // 默认状态
+                this.action = 'using';
             }
 
-            // 2. 计算时长
             let durationMinutes = 30;
             if (handler && handler.getDuration) durationMinutes = handler.getDuration(this, obj);
             else if (handler && handler.duration) durationMinutes = handler.duration;
@@ -673,9 +662,7 @@ export class Sim {
 
             this.actionTimer = minutes(durationMinutes);
 
-            // 3. 计算动作文本
             let verb = handler ? handler.verb : "使用";
-            // 关键：将 verb 存入 bubble，这样 Inspector 可能会优先显示
             if (Math.random() < 0.8) this.say(verb, 'act');
             if (handler && handler.getVerb) verb = handler.getVerb(this, obj);
             
@@ -707,7 +694,6 @@ export class Sim {
                 return;
             }
 
-            // [优化] 使用导入的策略表
             let handler = INTERACTIONS[u];
             if (!handler) {
                  const prefixKey = Object.keys(INTERACTIONS).find(k => k.endsWith('_') && u.startsWith(k));

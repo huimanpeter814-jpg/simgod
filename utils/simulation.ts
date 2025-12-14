@@ -27,7 +27,6 @@ export class GameStore {
     }
 
     // [关键] 初始化家具索引
-    // 如果不运行这个，DecisionLogic 就会失效，Sim 会变傻
     static initIndex() {
         this.furnitureIndex.clear();
         FURNITURE.forEach(f => {
@@ -67,7 +66,6 @@ export class GameStore {
     static saveGame() {
         const safeSims = this.sims.map(sim => {
             const s = Object.assign({}, sim);
-            // 保存时移除临时引用，防止循环引用或陈旧数据
             if (s.interactionTarget && (s.interactionTarget as any).ref) {
                 s.interactionTarget = null;
                 s.action = 'idle';
@@ -78,7 +76,7 @@ export class GameStore {
         });
 
         const saveData = {
-            version: 2.0, // 增加版本号
+            version: 2.0, 
             time: this.time,
             logs: this.logs,
             sims: safeSims
@@ -98,7 +96,6 @@ export class GameStore {
             
             const data = JSON.parse(json);
 
-            // [安全检查] 如果存档版本过旧，直接丢弃以防崩溃
             if (!data.version && data.sims.length > 0) {
                 console.warn("[System] Save file is too old. Resetting.");
                 return false;
@@ -111,14 +108,12 @@ export class GameStore {
                 const sim = new Sim(sData.pos.x, sData.pos.y);
                 Object.assign(sim, sData);
                 
-                // [修复] 强制重置所有正在进行的交互，防止由于家具ID变更导致的崩溃
                 sim.interactionTarget = null;
                 sim.target = null;
                 if (sim.action !== 'sleeping') {
                     sim.action = 'idle';
                 }
                 
-                // [修复] 确保职业数据是最新的配置
                 const currentJobDefinition = JOBS.find(j => j.id === sim.job.id);
                 if (currentJobDefinition) {
                     sim.job = { ...currentJobDefinition };
@@ -126,7 +121,6 @@ export class GameStore {
                     sim.job = JOBS.find(j => j.id === 'unemployed')!;
                 }
 
-                // 补全可能缺失的数据
                 if (sim.dailyIncome === undefined) sim.dailyIncome = 0;
 
                 return sim;
@@ -149,7 +143,6 @@ export class GameStore {
 }
 
 export function initGame() {
-    // [关键步骤] 必须在这里构建索引
     GameStore.initIndex();
 
     if (GameStore.loadGame()) {
@@ -166,14 +159,16 @@ export function updateTime() {
     if (GameStore.time.speed === 0) return;
 
     GameStore.timeAccumulator += GameStore.time.speed;
+    
+    // 当累积到 1 分钟时
     if (GameStore.timeAccumulator >= 60) {
         GameStore.timeAccumulator = 0;
         GameStore.time.minute++;
-        GameStore.notify();
 
-        // 这里的 true 表示分钟改变了
+        // 这里的 true 表示分钟改变了，通知 Sim 更新 Buff 等
         GameStore.sims.forEach(s => s.update(0, true));
 
+        // [修复] 先处理进位逻辑，再通知 UI，防止 UI 显示 "60" 分
         if (GameStore.time.minute >= 60) {
             GameStore.time.minute = 0;
             GameStore.time.hour++;
@@ -214,6 +209,9 @@ export function updateTime() {
                 GameStore.saveGame();
             }
         }
+        
+        // [修复] 所有的状态变更（包括进位）完成后，再通知 UI 渲染
+        GameStore.notify();
     }
 }
 
@@ -228,13 +226,11 @@ export function getActivePalette() {
 }
 
 export function gameLoopStep() {
-    // [防崩保护] 捕获所有未预料的错误
     try {
         updateTime();
         GameStore.sims.forEach(s => s.update(GameStore.time.speed, false));
     } catch (error) {
         console.error("Game Loop Error:", error);
-        // 如果出错，强制暂停游戏，避免浏览器卡死
         GameStore.time.speed = 0; 
         GameStore.notify();
     }

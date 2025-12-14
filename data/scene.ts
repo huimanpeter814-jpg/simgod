@@ -338,14 +338,13 @@ export const FURNITURE: Furniture[] = [
     ...createGrid('tech_chair', 65, 70, 7, 4, 60, 65, { 
         w: 22, h: 22, 
         color: '#8a9ca6', 
-        label: '人体工学椅', 
+        label: '码农工位', 
         utility: 'work', 
-        dir: 'up',
         pixelPattern: 'chair_pixel'
     }),
     
     // 像素服务器组
-    ...createRow('server_rack', 50, 300, 4, 75, 0, { 
+    ...createRow('server_rack', 50, 300, 3, 75, 0, { 
         w: 64, h: 38, 
         color: '#253048', 
         label: '服务器组', 
@@ -355,6 +354,8 @@ export const FURNITURE: Furniture[] = [
         pixelGlow: true,
         glowColor: '#00ffaa'
     }),
+    { id: 'boss_chair', x: 300, y: 300, w: 44, h: 44, color: '#253048', label: '老板椅', utility: 'work', pixelPattern: 'chair_boss' },
+
     { id: 'server_console', x: 350, y: 310, w: 34, h: 24, color: '#a8b4c8', label: '控制台', utility: 'work', pixelPattern: 'console' },
     
     // 像素休闲区
@@ -367,14 +368,14 @@ export const FURNITURE: Furniture[] = [
     { id: 'conf_rug', x: 650, y: 65, w: 290, h: 180, color: '#a8b4c8', label: '地毯', utility: 'none', pixelPattern: 'rug_fancy' },
     { id: 'conf_table', x: 720, y: 110, w: 168, h: 84, color: '#f0f5ff', label: '大理石会议桌', utility: 'work_group', dir: 'down', multiUser: true, pixelPattern: 'table_marble' },
     { id: 'conf_projector', x: 680, y: 120, w: 12, h: 64, color: '#253048', label: '投影仪', utility: 'none', pixelPattern: 'tech' },
-    ...createRow('conf_chair_t', 730, 80, 4, 44, 0, { w: 22, h: 22, color: '#253048', label: '皮椅', utility: 'sit', pixelPattern: 'chair_leather' }),
-    ...createRow('conf_chair_b', 730, 200, 4, 44, 0, { w: 22, h: 22, color: '#253048', label: '皮椅', utility: 'sit', pixelPattern: 'chair_leather' }),
+    ...createRow('conf_chair_t', 730, 80, 4, 44, 0, { w: 22, h: 22, color: '#253048', label: '商务工位', utility: 'work', pixelPattern: 'chair_leather' }),
+    ...createRow('conf_chair_b', 730, 200, 4, 44, 0, { w: 22, h: 22, color: '#253048', label: '商务工位', utility: 'work', pixelPattern: 'chair_leather' }),
     
     // 像素总裁办公室
     { id: 'boss_area_rug', x: 830, y: 245, w: 230, h: 108, color: PALETTE.deco_rug_persian, label: '波斯地毯', utility: 'none', pixelPattern: 'rug_persian' },
-    { id: 'boss_desk', x: 880, y: 250, w: 126, h: 54, color: PALETTE.deco_wood_red, label: '红木班台', utility: 'work', pixelPattern: 'desk_wood' },
+    { id: 'boss_desk', x: 880, y: 250, w: 126, h: 54, color: PALETTE.deco_wood_red, label: '红木班台', utility: 'none', pixelPattern: 'desk_wood' },
     { id: 'boss_pc', x: 900, y: 270, w: 44, h: 12, color: '#1a1e2c', label: '一体机', utility: 'none', pixelPattern: 'pc_pixel' },
-    { id: 'boss_chair', x: 900, y: 300, w: 44, h: 44, color: '#253048', label: '老板椅', utility: 'sit', pixelPattern: 'chair_boss' },
+    { id: 'boss_chair', x: 900, y: 300, w: 44, h: 44, color: '#253048', label: '老板椅', utility: 'work', pixelPattern: 'chair_boss' },
     { id: 'boss_bookshelf', x: 1020, y: 250, w: 24, h: 80, color: PALETTE.deco_wood_red, label: '藏书架', utility: 'none', pixelPattern: 'bookshelf' },
     { id: 'boss_safe', x: 840, y: 310, w: 34, h: 34, color: '#5a6572', label: '保险柜', utility: 'none', pixelPattern: 'safe' },
     
@@ -636,7 +637,7 @@ export const FURNITURE: Furniture[] = [
     // Cinema - 像素影院风
     // [优化] 影院服务台允许多人工作
     { id: 'ticket_booth_work', x: 1350, y: 1280, w: 44, h: 44, color: '#ff5252', label: '影院服务台', utility: 'work', multiUser: true, pixelPattern: 'ticket_booth' },
-    { id: 'ticket_booth', x: 1250, y: 1280, w: 84, h: 44, color: '#ff5252', label: '售票处', utility: 'pay', pixelPattern: 'ticket_booth' },
+    { id: 'ticket_booth', x: 1250, y: 1280, w: 84, h: 44, color: '#ff5252', label: '售票处', utility: 'work', pixelPattern: 'ticket_booth' },
     { id: 'popcorn_machine', x: 1500, y: 1280, w: 44, h: 44, color: '#ffd32a', label: '爆米花机', utility: 'buy_food', pixelPattern: 'popcorn_machine' },
     { id: 'claw_machine_1', x: 1450, y: 1280, w: 44, h: 44, color: '#ff7aa8', label: '抓娃娃机', utility: 'play', pixelPattern: 'claw_machine' },
     
@@ -712,7 +713,7 @@ export const FURNITURE: Furniture[] = [
         utility: 'work',
         pixelPattern: 'desk_library'
     }),
-    { id: 'librarian_desk', x: 2200, y: 1000, w: 64, h: 44, color: '#5a6572', label: '管理员', utility: 'none', pixelPattern: 'desk_librarian' },
+    { id: 'librarian_desk', x: 2200, y: 1000, w: 64, h: 44, color: '#5a6572', label: '管理员', utility: 'work', pixelPattern: 'desk_librarian' },
 
     // -----------------------------------------------------
     // 🏋️‍♀️ 健身与夜生活 - 像素动感风

@@ -38,25 +38,17 @@ const SkillBar: React.FC<{ val: number }> = ({ val }) => {
 };
 
 // Bi-directional Bar Component
-// Center is 0. Left is -100, Right is +100.
 const RelBar: React.FC<{ val: number, type: 'friend' | 'romance' }> = ({ val, type }) => {
-    // Width represents distance from center (0 to 50%)
     const widthPercent = Math.min(50, (Math.abs(val) / 100) * 50);
     const isPositive = val >= 0;
-
-    // Position: If positive, start at 50%. If negative, start at 50% - width.
     const leftPercent = isPositive ? 50 : 50 - widthPercent;
-
     let color = isPositive ? (type === 'friend' ? 'bg-success' : 'bg-love') : 'bg-danger';
 
     return (
         <div className="flex items-center gap-2 text-[9px] text-gray-500 w-full">
             <span className="w-3 text-center">{type === 'friend' ? '友' : '爱'}</span>
             <div className="flex-1 h-2 bg-black/40 rounded-full relative overflow-hidden border border-white/5">
-                {/* Center Marker */}
                 <div className="absolute left-1/2 top-0 bottom-0 w-px bg-white/30 z-10"></div>
-
-                {/* Bar */}
                 <div
                     className={`absolute top-0 bottom-0 ${color} transition-all duration-300`}
                     style={{ left: `${leftPercent}%`, width: `${widthPercent}%` }}
@@ -68,9 +60,11 @@ const RelBar: React.FC<{ val: number, type: 'friend' | 'romance' }> = ({ val, ty
 };
 
 // Status Translation Map
+// [修复] 增加 'commuting' 的中文映射
 const STATUS_MAP: Record<string, string> = {
     idle: '发呆',
     moving: '移动中',
+    commuting: '通勤中',
     wandering: '闲逛',
     working: '打工',
     sleeping: '睡觉',
@@ -94,10 +88,7 @@ const Inspector: React.FC<InspectorProps> = ({ selectedId, sims }) => {
 
     let statusText = STATUS_MAP[sim.action] || sim.action;
 
-    // 修复：针对 'using' 状态，显示更具体的交互对象名称
     if (sim.action === 'using' && sim.interactionTarget) {
-        // 从 interactionTarget 中提取标签，去掉 id 后缀 (如 "gym_run_1" -> "跑步机")
-        // 但这里我们直接用 furniture.label，它已经是中文名了
         statusText = `使用 ${sim.interactionTarget.label}`;
     }
 
@@ -105,8 +96,6 @@ const Inspector: React.FC<InspectorProps> = ({ selectedId, sims }) => {
     const displayStatus = (sim.bubble?.type === 'act' && sim.bubble?.text && sim.bubble?.timer > 0)
         ? sim.bubble.text
         : statusText;
-
-    // ... (前面的代码保持不变)
 
     return (
         <div className="w-[340px] max-h-[calc(100vh-160px)] flex flex-col bg-[#121212]/95 backdrop-blur-xl border border-white/20 rounded-xl shadow-2xl pointer-events-auto animate-[fadeIn_0.2s_ease-out] text-[#e0e0e0]">
@@ -130,13 +119,11 @@ const Inspector: React.FC<InspectorProps> = ({ selectedId, sims }) => {
                         </button>
                     </div>
                     
-                    {/* [修改] 在这里添加了人生目标标签 */}
                     <div className="flex flex-wrap gap-1 mt-2">
                         <span className="text-[10px] px-2 py-0.5 rounded bg-accent/20 text-accent font-bold border border-accent/20">{sim.mbti}</span>
                         <span className="text-[10px] px-2 py-0.5 rounded bg-white/10 text-gray-300 border border-white/10">{sim.zodiac.name}</span>
                         <span className="text-[10px] px-2 py-0.5 rounded bg-white/10 text-gray-300 border border-white/10">{sim.age}岁</span>
                         <span className="text-[10px] px-2 py-0.5 rounded bg-white/10 text-gray-300 border border-white/10">{ORIENTATIONS.find(o => o.type === sim.orientation)?.label}</span>
-                        {/* 新增：人生目标 */}
                         <span className="text-[10px] px-2 py-0.5 rounded bg-warning/10 text-warning border border-warning/20">
                             🎯 {sim.lifeGoal}
                         </span>
@@ -230,7 +217,6 @@ const Inspector: React.FC<InspectorProps> = ({ selectedId, sims }) => {
                     <div className="text-[10px] text-gray-500 font-bold uppercase tracking-wider mb-2">技能等级</div>
                     <div className="grid grid-cols-2 gap-x-4 gap-y-2">
                         {Object.entries(sim.skills).map(([key, val]) => {
-                            // 确保 val 是数字类型
                             const skillVal = val as number;
                             if (skillVal < 5) return null; // Hide very low skills
                             const label = SKILLS.find(s => s.id === key)?.label || key;

@@ -1,6 +1,6 @@
 import { SimData, Job } from '../types';
 import { CONFIG, FURNITURE } from '../constants';
-import { getAsset } from './assetLoader'; // [新功能] 引用资源加载器
+import { getAsset } from './assetLoader'; 
 
 // 将游戏分钟转换为 tick 数 (1 游戏分钟 = 60 ticks)
 export const minutes = (m: number) => m * 60;
@@ -8,27 +8,31 @@ export const minutes = (m: number) => m * 60;
 // 计算特定职业的工位容量
 export const getJobCapacity = (job: Job) => {
     let searchLabels: string[] = [];
-    // 默认搜索 work 和 work_group (涵盖普通工位和会议桌)
     let searchCategories: string[] = ['work', 'work_group']; 
 
+    // [修复] 此处必须与 Sim.ts 中的 checkSchedule 逻辑保持一致
+    // 搜索的是实际可交互的家具名称 (椅子等)，而不是装饰性的桌子
     if (job.companyType === 'internet') {
-        searchLabels = job.level >= 4 ? ['红木班台'] : ['升降办公桌', '控制台'];
+        searchLabels = job.level >= 4 ? ['老板椅'] : ['码农工位', '控制台'];
     } else if (job.companyType === 'design') {
         searchLabels = ['画架'];
-        searchCategories.push('paint'); // 画架在 paint 分类
+        searchCategories.push('paint'); 
     } else if (job.companyType === 'business') {
-        searchLabels = job.level >= 4 ? ['红木班台'] : ['会议桌'];
+        searchLabels = job.level >= 4 ? ['老板椅'] : ['商务工位']; // 会议室椅子
     } else if (job.companyType === 'store') {
-        searchLabels = ['服务台', '影院服务台', '售票'];
-        searchCategories.push('pay'); // 售票处在 pay 分类
+        searchLabels = ['服务台', '影院服务台', '售票处'];
+        searchCategories.push('pay'); 
     } else if (job.companyType === 'restaurant') {
         if (job.title.includes('厨')) {
             searchLabels = ['后厨'];
         } else {
             searchLabels = ['餐厅前台', '雅座'];
-            searchCategories.push('eat_out'); // 雅座在 eat_out 分类
+            searchCategories.push('eat_out'); 
         }
-    } else {
+    } else if(job.companyType === 'library'){
+        searchLabels = ['管理员'];
+    }
+    else {
         return 0; // Unemployed
     }
 
@@ -39,11 +43,9 @@ export const getJobCapacity = (job: Job) => {
     ).length;
 
     // [特殊调整]
-    // 1. 会议桌是多人使用的，需要增加容量倍率
-    if (searchLabels.includes('会议桌')) {
-        capacity *= 4; // 假设一张会议桌能坐4人
-    }
-
+    // 1. 会议桌是多人使用的，需要增加容量倍率 (现在是搜索皮椅，如果皮椅是单个定义则不需要倍率，如果是成组则需要)
+    // 根据 scene.ts，皮椅是 createRow 生成的，是单独的 entity，所以 capacity 统计是准确的
+    
     // 2. 餐厅服务员/商店店员稍微放宽一点
     if (job.companyType === 'store' || job.companyType === 'restaurant') {
         capacity = Math.max(capacity, 2); 
