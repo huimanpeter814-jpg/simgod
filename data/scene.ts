@@ -166,14 +166,14 @@ export const ROOMS = [
 
     // === 🛍️ 南部：商业娱乐 ===
     { id: 'commercial_pave', x: 580, y: 1250, w: 1020, h: 550, label: '', color: PALETTE.ground_pave, pixelPattern: 'pave_fancy' },
-    { id: 'mall_main', x: 600, y: 1250, w: 600, h: 530, label: '万达广场', color: '#ffd93d', pixelPattern: 'mall' },
+    { id: 'mall_main', x: 600, y: 1250, w: 600, h: 530, label: '大型商场', color: '#ffd93d', pixelPattern: 'mall' },
     { id: 'entertainment_complex', x: 1230, y: 1250, w: 370, h: 530, label: 'IMAX 影城', color: '#252a36', pixelPattern: 'cinema' },
 
     // === 🏥 东部：公共服务 ===
     { id: 'public_ground', x: 1680, y: 480, w: 720, h: 1320, label: '', color: '#fff9e8', pixelPattern: 'public' },
-    { id: 'hospital_main', x: 1700, y: 500, w: 680, h: 320, label: '第一人民医院', color: '#7ce8ff', pixelPattern: 'hospital' },
+    { id: 'hospital_main', x: 1700, y: 500, w: 680, h: 320, label: '餐厅', color: '#7ce8ff', pixelPattern: 'hospital' },
     { id: 'library_complex', x: 1700, y: 850, w: 680, h: 350, label: '市图书馆', color: '#ffffff', pixelPattern: 'library' },
-    { id: 'gym_complex', x: 2000, y: 1250, w: 380, h: 530, label: '奥林匹克健身', color: '#a8b4c8', pixelPattern: 'gym' },
+    { id: 'gym_complex', x: 2000, y: 1250, w: 380, h: 530, label: '健身房', color: '#a8b4c8', pixelPattern: 'gym' },
     { id: 'arcade_zone', x: 1680, y: 1250, w: 300, h: 250, label: '赛博电玩城', color: '#5a6572', pixelPattern: 'arcade' },
     { id: 'night_club', x: 1680, y: 1520, w: 300, h: 260, label: '霓虹夜店', color: '#162056', pixelPattern: 'neon' },
 ];
@@ -442,14 +442,14 @@ export const FURNITURE: Furniture[] = [
         w: 44, h: 44, 
         color: PALETTE.deco_flower_red, 
         label: '玫瑰花坛', 
-        utility: 'none',
+        utility: 'gardening',
         pixelPattern: 'flower_rose'
     }),
     ...createGrid('flower_bed_yel', 1400, 560, 2, 2, 80, 80, { 
         w: 44, h: 44, 
         color: PALETTE.deco_flower_yellow, 
         label: '郁金香花坛', 
-        utility: 'none',
+        utility: 'gardening',
         pixelPattern: 'flower_tulip'
     }),
 
@@ -464,6 +464,24 @@ export const FURNITURE: Furniture[] = [
         utility: 'comfort',
         pixelPattern: 'bench_park'
     }),
+
+    ...createRow('fishing_spot', 870, 930, 4, 40, 0, { 
+        w: 24, h: 24, 
+        color: '#74b9ff', 
+        label: '钓鱼位', 
+        utility: 'fishing', 
+        dir: 'down',
+        pixelPattern: 'fishing_rod' // 需确保 assets 或绘制逻辑支持，或者用 generic
+    }),
+
+    ...createRow('fishing_spot', 1190, 930, 4, 40, 0, { 
+        w: 24, h: 24, 
+        color: '#74b9ff', 
+        label: '钓鱼位', 
+        utility: 'fishing', 
+        dir: 'down',
+        pixelPattern: 'fishing_rod' // 需确保 assets 或绘制逻辑支持，或者用 generic
+    }),
     
     { id: 'picnic_mat_a', x: 700, y: 900, w: 108, h: 84, color: '#ff6b81', label: '野餐垫', utility: 'none', pixelPattern: 'picnic_mat' },
     { id: 'picnic_basket', x: 720, y: 920, w: 34, h: 24, color: '#d4bcaa', label: '野餐篮', utility: 'eat', pixelPattern: 'basket' },
@@ -477,7 +495,7 @@ export const FURNITURE: Furniture[] = [
         w: 34, h: 34, 
         color: '#00b894', 
         label: '灌木丛', 
-        utility: 'none',
+        utility: 'gardening',
         pixelPattern: 'bush'
     }),
 
@@ -485,14 +503,14 @@ export const FURNITURE: Furniture[] = [
     // 🏘️ 居住区 - 像素生活风
     // -----------------------------------------------------
     // Block A
-    ...createGrid('dorm_bed', 60, 520, 4, 3, 100, 90, { 
+    ...createGrid('dorm_bed', 60, 520, 3, 3, 100, 90, { 
         w: 54, h: 84, 
         color: '#4a7dff', 
         label: '上下铺', 
         utility: 'energy',
         pixelPattern: 'bed_bunk'
     }),
-    ...createGrid('dorm_desk', 120, 520, 4, 3, 100, 90, { 
+    ...createGrid('dorm_desk', 120, 520, 2, 3, 100, 90, { 
         w: 34, h: 34, 
         color: '#a8b4c8', 
         label: '书桌', 
@@ -506,6 +524,13 @@ export const FURNITURE: Furniture[] = [
         label: '马桶', 
         utility: 'comfort',
         pixelPattern: 'toilet'
+    }),
+    ...createRow('dorm_shower', 350, 600, 3, 0, 50, {
+        w: 34, h: 44,
+        color: '#81ecec',
+        label: '公共淋浴',
+        utility: 'shower',
+        pixelPattern: 'shower_stall'
     }),
     
     // Block B
@@ -585,8 +610,9 @@ export const FURNITURE: Furniture[] = [
     { id: 'mannequin_2', x: 950, y: 1350, w: 24, h: 24, color: '#ffdd59', label: '模特', utility: 'none', pixelPattern: 'mannequin' },
     { id: 'fitting_room', x: 1100, y: 1550, w: 44, h: 108, color: '#a8b4c8', label: '试衣间', utility: 'none', pixelPattern: 'fitting_room' },
 
-    { id: 'cashier_mall', x: 800, y: 1500, w: 158, h: 44, color: '#2c3e50', label: '服务台', utility: 'pay', pixelPattern: 'cashier' },
-    
+    { id: 'cashier_mall_1', x: 800, y: 1500, w: 60, h: 44, color: '#2c3e50', label: '服务台', utility: 'work', pixelPattern: 'cashier' },
+    { id: 'cashier_mall_2', x: 880, y: 1500, w: 60, h: 44, color: '#2c3e50', label: '服务台', utility: 'work', pixelPattern: 'cashier' },
+
     ...createGrid('market_shelf_food', 620, 1600, 5, 1, 80, 40, { 
         w: 64, h: 28, 
         color: '#ffdd59', 
@@ -610,8 +636,9 @@ export const FURNITURE: Furniture[] = [
     }),
 
     // Cinema - 像素影院风
+    { id: 'ticket_booth_work', x: 1350, y: 1280, w: 44, h: 44, color: '#ff5252', label: '影院服务台', utility: 'work', pixelPattern: 'ticket_booth' },
     { id: 'ticket_booth', x: 1250, y: 1280, w: 84, h: 44, color: '#ff5252', label: '售票处', utility: 'pay', pixelPattern: 'ticket_booth' },
-    { id: 'popcorn_machine', x: 1350, y: 1280, w: 44, h: 44, color: '#ffd32a', label: '爆米花机', utility: 'buy_food', pixelPattern: 'popcorn_machine' },
+    { id: 'popcorn_machine', x: 1500, y: 1280, w: 44, h: 44, color: '#ffd32a', label: '爆米花机', utility: 'buy_food', pixelPattern: 'popcorn_machine' },
     { id: 'claw_machine_1', x: 1450, y: 1280, w: 44, h: 44, color: '#ff7aa8', label: '抓娃娃机', utility: 'play', pixelPattern: 'claw_machine' },
     
     { id: 'screen_imax', x: 1260, y: 1350, w: 316, h: 12, color: '#ffffff', label: 'IMAX 巨幕', utility: 'none', pixelPattern: 'screen_cinema' },
@@ -633,20 +660,37 @@ export const FURNITURE: Furniture[] = [
     // -----------------------------------------------------
     // 🏥 公共服务区 - 像素功能风
     // -----------------------------------------------------
-    // Hospital
-    { id: 'reception_med', x: 1720, y: 520, w: 126, h: 44, color: '#ffffff', label: '分诊台', utility: 'none', pixelPattern: 'reception' },
-    { id: 'med_pc', x: 1750, y: 525, w: 24, h: 12, color: '#a8b4c8', label: '电脑', utility: 'none', pixelPattern: 'pc_med' },
-    ...createGrid('med_bed_scan', 1900, 550, 3, 2, 100, 110, { 
-        w: 64, h: 94, 
-        color: '#5a8fff', 
-        label: '治疗床', 
-        utility: 'energy',
-        pixelPattern: 'bed_med'
-    }),
-    { id: 'drip_stand', x: 1880, y: 550, w: 12, h: 34, color: '#dfe6e9', label: '输液架', utility: 'none', pixelPattern: 'drip_stand' },
-    { id: 'mri_machine', x: 2200, y: 600, w: 84, h: 84, color: '#a8b4c8', label: 'CT扫描仪', utility: 'med_check', pixelPattern: 'mri_machine' },
-    { id: 'pharmacy_shelf', x: 1720, y: 700, w: 158, h: 34, color: '#ffffff', label: '药房货架', utility: 'buy_item', pixelPattern: 'shelf_pharmacy' },
+    //餐厅
+    // 前台/接待 (服务员工作位)
+    { id: 'rest_reception', x: 1820, y: 520, w: 126, h: 44, color: '#e17055', label: '餐厅前台', utility: 'work', pixelPattern: 'reception' },
     
+    // 雅座 (顾客用餐 + 服务员工作覆盖区)
+    ...createGrid('rest_table_2', 1720, 600, 3, 2, 120, 100, { 
+        w: 84, h: 64, 
+        color: '#fab1a0', 
+        label: '豪华雅座', 
+        utility: 'eat_out', // 外出就餐交互
+        pixelPattern: 'table_dining',
+        cost: 60 // 吃饭要花钱
+    }),
+
+    // 后厨区域 (厨师工作位)
+    ...createGrid('kitchen_counter_1', 2100, 520, 1, 4, 0, 70, { 
+        w: 34, h: 54, 
+        color: '#b2bec3', 
+        label: '后厨备菜台', 
+        utility: 'work', 
+        pixelPattern: 'kitchen_counter'
+    }),
+
+    ...createGrid('kitchen_stove', 2200, 520, 2, 4, 80, 70, { 
+        w: 44, h: 64, 
+        color: '#d63031', 
+        label: '后厨灶台', 
+        utility: 'work', 
+        pixelPattern: 'stove'
+    }),
+
     // Library
     ...createGrid('book_row_hist', 1720, 900, 8, 1, 60, 0, { 
         w: 44, h: 108, 
@@ -693,6 +737,15 @@ export const FURNITURE: Furniture[] = [
     }),
     { id: 'water_station_gym', x: 2300, y: 1400, w: 34, h: 34, color: '#5a8fff', label: '直饮水', utility: 'drink', pixelPattern: 'water_station' },
     
+    ...createRow('gym_shower', 2300, 1550, 4, 0, 50, { 
+        w: 34, h: 44, 
+        color: '#81ecec', 
+        label: '淋浴间', 
+        utility: 'shower', // 新增交互类型
+        dir: 'left',
+        pixelPattern: 'shower_stall'
+    }),
+    
     // Arcade
     ...createGrid('arcade_racing', 1700, 1270, 4, 1, 60, 0, { 
         w: 54, h: 74, 
@@ -710,7 +763,7 @@ export const FURNITURE: Furniture[] = [
         pixelPattern: 'arcade_fight',
         pixelGlow: true
     }),
-    { id: 'dance_machine', x: 1900, y: 1400, w: 64, h: 64, color: '#ff7aa8', label: '跳舞机', utility: 'play', pixelPattern: 'dance_machine', pixelGlow: true },
+    { id: 'dance_machine', x: 1900, y: 1400, w: 64, h: 64, color: '#ff7aa8', label: '跳舞机', utility: 'dance', pixelPattern: 'dance_machine', pixelGlow: true },
 
     // Night Club - 像素霓虹风
     { id: 'bar_counter_long', x: 1690, y: 1530, w: 34, h: 208, color: '#e84393', label: '发光吧台', utility: 'buy_drink', pixelPattern: 'bar_counter', pixelGlow: true },

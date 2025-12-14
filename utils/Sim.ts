@@ -266,8 +266,7 @@ export class Sim {
         }
 
         if (item.buff) this.addBuff(BUFFS[item.buff as keyof typeof BUFFS]);
-        
-        // [修复 3] 买票不再无用
+
         // 如果买了美术馆门票，立即强制去找艺术品
         if (item.id === 'museum_ticket') {
              this.say("买票去看展 🎨", 'act');
@@ -592,16 +591,20 @@ export class Sim {
         } else {
             let obj = this.interactionTarget as Furniture;
 
-            if (obj.cost && obj.cost > this.money) {
-                this.say("太贵了...", 'bad');
-                this.reset();
-                return;
-            }
             if (obj.cost) {
+                if (this.money < obj.cost) {
+                    this.say("太贵了...", 'bad');
+                    this.reset();
+                    return;
+                }
                 this.money -= obj.cost;
                 this.dailyExpense += obj.cost;
                 this.dailyBudget -= obj.cost;
+                
+                // 明确记录买了什么
+                // 比如 "消费: 豪华雅座 -$60" 或 "消费: 当季新款 -$100"
                 GameStore.addLog(this, `消费: ${obj.label} -$${obj.cost}`, 'money');
+                this.say(`买! -${obj.cost}`, 'money');
             }
 
             // [优化] 使用导入的策略表
@@ -642,6 +645,8 @@ export class Sim {
 
             // 3. 计算动作文本
             let verb = handler ? handler.verb : "使用";
+            // 关键：将 verb 存入 bubble，这样 Inspector 可能会优先显示
+            if (Math.random() < 0.8) this.say(verb, 'act');
             if (handler && handler.getVerb) verb = handler.getVerb(this, obj);
             
             if (durationMinutes < 400 && Math.random() < 0.5) this.say(verb, 'act');

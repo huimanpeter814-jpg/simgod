@@ -46,6 +46,25 @@ export const INTERACTIONS: Record<string, InteractionHandler> = {
             sim.say("买不起...", 'bad'); return false;
         }
     },
+    'buy_item': {
+        verb: '购物 🛍️', duration: 15,
+        onStart: (sim, obj) => {
+            // 检查钱够不够
+            const cost = obj.cost || 50; // 默认价格
+            if (sim.money < cost) {
+                sim.say("太贵了...", 'bad');
+                return false;
+            }
+            // 扣钱逻辑移到 Sim.ts 的 startInteraction 统一处理，或者在这里处理
+            // 这里返回 true 让 Sim 进入 using 状态
+            return true;
+        },
+        onFinish: (sim, obj) => {
+            sim.say("买买买! ✨", 'act');
+            // 增加一点心情
+            sim.needs.fun += 20;
+        }
+    },
     'gym_run': {
         verb: '健身', duration: 60,
         onUpdate: (sim, obj, f, getRate) => {
@@ -63,30 +82,26 @@ export const INTERACTIONS: Record<string, InteractionHandler> = {
         }
     },
     'gardening': {
-        verb: '园艺', duration: 90,
+        verb: '修剪枝叶 🌿', duration: 40,
         onUpdate: (sim, obj, f, getRate) => {
-            sim.skills.gardening += 0.05 * f;
-            sim.needs.fun += getRate(180);
-            sim.needs.energy -= getRate(240);
-        },
-        onFinish: (sim, obj) => {
-             if (sim.isSideHustle) {
-                const earned = 20 + sim.skills.gardening * 6;
-                sim.earnMoney(earned, 'gardening');
-             }
+            sim.skills.gardening += 0.08 * f; // 技能增加
+            sim.needs.fun += getRate(150);
         }
     },
+
     'fishing': {
-        verb: '钓鱼', duration: 120,
+        verb: '钓鱼 🎣', duration: 60,
         onUpdate: (sim, obj, f, getRate) => {
-            sim.skills.fishing += 0.05 * f;
-            sim.needs.fun += getRate(180);
+            sim.skills.fishing += 0.08 * f; // 技能增加
+            sim.needs.fun += getRate(120);
         },
-        onFinish: (sim, obj) => {
-             if (sim.isSideHustle) {
-                const earned = 30 + sim.skills.fishing * 8;
-                sim.earnMoney(earned, 'fishing');
-             }
+        onFinish: (sim) => {
+            // 钓鱼结束有概率获得收益
+            if (Math.random() > 0.6) {
+                const earned = 15 + sim.skills.fishing * 2;
+                sim.earnMoney(earned, 'sell_fish');
+                sim.say("钓到大鱼了! 🐟", 'money');
+            }
         }
     },
     'cooking': {
@@ -110,6 +125,14 @@ export const INTERACTIONS: Record<string, InteractionHandler> = {
             sim.needs.fun += getRate(RESTORE_TIMES.play);
             sim.needs.energy -= getRate(180);
             sim.needs.hygiene -= getRate(300);
+        }
+    },
+    'dance': {
+        verb: '跳舞 💃', duration: 30,
+        onUpdate: (sim, obj, f, getRate) => {
+            sim.skills.dancing += 0.1 * f;
+            sim.needs.fun += getRate(60);
+            sim.needs.energy -= getRate(200); // 消耗体力
         }
     },
     'work': {
@@ -160,15 +183,35 @@ export const INTERACTIONS: Record<string, InteractionHandler> = {
             if (timeKey === 'energy_nap') sim.needs.comfort = 100;
         }
     },
+    'shower': {
+        verb: '洗澡 🚿', duration: 20,
+        onStart: (sim) => { sim.action = 'using'; return true; }, // 显示正在使用
+        onUpdate: (sim, obj, f, getRate) => {
+            sim.needs.hygiene += getRate(20); // 20分钟充满
+            sim.needs.energy += getRate(400); // 稍微恢复一点精力
+            sim.needs.comfort = 100;
+        }
+    },
     'hunger': {
         verb: '用餐 🍴', duration: 30,
         onStart: (sim) => { sim.action = 'eating'; return true; },
         onUpdate: genericRestore('hunger')
     },
     'eat_out': {
-        verb: '用餐 🍴', duration: 40,
-        onStart: (sim) => { sim.action = 'eating'; return true; },
-        onUpdate: genericRestore('hunger')
+        verb: '享用美食 🍝', duration: 60,
+        onStart: (sim, obj) => {
+             const cost = obj.cost || 60;
+             if (sim.money < cost) { sim.say("吃不起...", 'bad'); return false; }
+             return true;
+        },
+        onUpdate: (sim, obj, f, getRate) => {
+            sim.needs.hunger += getRate(40); // 慢慢吃
+            sim.needs.fun += getRate(100);
+            sim.needs.social += getRate(200); // 餐厅有人气
+        },
+        onFinish: (sim) => {
+            sim.addBuff(BUFFS.good_meal);
+        }
     },
     'default': {
         verb: '使用', duration: 30,

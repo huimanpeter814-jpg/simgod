@@ -18,12 +18,15 @@ export const getJobCapacity = (job: Job) => {
         // Business L4 shares normal desks currently unless we add a specific manager desk
         searchLabels = ['商务', '经理']; 
     } else if (job.companyType === 'store') {
-        // Stores rely on limited counters and shelves
-        searchLabels = ['前台', '书架'];
+        // [修改] 增加 '售票' 关键词，让电影院员工能找到 ticket_booth
+        searchLabels = ['前台', '管理', '售票', '柜台','服务台'];
     } else if (job.companyType === 'restaurant') {
-        searchLabels = job.title === '厨师' || job.title === '主厨' ? ['后厨'] : ['前台', '雅座']; 
-        // Waiters (level 1/2) can technically "work" by patrolling tables, so we check tables too for capacity roughly
-    } else {
+        // [修改] 确保这些关键词匹配 scene.ts 里的 label
+        // 后厨 -> 匹配 '后厨备菜台', '后厨灶台'
+        // 前台/雅座 -> 匹配 '餐厅前台', '雅座'
+        searchLabels = job.title.includes('厨') ? ['后厨', '灶台'] : ['餐厅前台', '雅座']; 
+    }
+    else {
         return 0; // Unemployed
     }
 

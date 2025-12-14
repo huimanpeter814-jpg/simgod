@@ -390,23 +390,38 @@ const GameCanvas: React.FC = () => {
             // 选中标记
             if (GameStore.selectedSimId === sim.id) {
                 // 旋转的光环
-                ctx.save();
-                ctx.rotate(Date.now() / 500);
-                ctx.strokeStyle = '#39ff14';
-                ctx.setLineDash([4, 4]);
-                ctx.lineWidth = 2;
+                // 1. 脚底脉冲光环 (Pulsing Aura)
+                // 内圈实心
+                ctx.fillStyle = '#39ff14';
                 ctx.beginPath();
-                ctx.arc(0, 5, 15, 0, Math.PI * 2);
+                ctx.ellipse(0, 5, 12, 6, 0, 0, Math.PI * 2);
+                ctx.fill();
+
+                // 外圈扩散波纹 (Ripple Effect)
+                const rippleScale = (Date.now() % 1000) / 1000; // 0 -> 1 循环
+                const rippleAlpha = 1 - rippleScale; // 1 -> 0 渐隐
+                
+                ctx.save();
+                ctx.globalAlpha = rippleAlpha * 0.6;
+                ctx.strokeStyle = '#39ff14';
+                ctx.lineWidth = 3;
+                ctx.beginPath();
+                // 椭圆扩散：X轴半径 10->25, Y轴半径 5->12
+                ctx.ellipse(0, 5, 10 + rippleScale * 15, 5 + rippleScale * 7, 0, 0, Math.PI * 2);
                 ctx.stroke();
                 ctx.restore();
 
-                // 箭头
-                ctx.fillStyle = '#39ff14';
-                const floatY = -60 + Math.sin(Date.now() / 200) * 3;
+                // 3. 悬浮箭头 (Bounce Arrow) - 加大尺寸 + 描边
+                const floatY = -65 + Math.sin(Date.now() / 150) * 4; // 弹跳幅度加大
+                
+                // 箭头主体
+                ctx.fillStyle = '#39ff14'; // 荧光绿
+                
                 ctx.beginPath();
                 ctx.moveTo(0, floatY);
-                ctx.lineTo(-6, floatY - 8);
-                ctx.lineTo(6, floatY - 8);
+                ctx.lineTo(-10, floatY - 12); // 变大
+                ctx.lineTo(10, floatY - 12);  // 变大
+                ctx.closePath();
                 ctx.fill();
             } else {
                 // 脚底阴影
