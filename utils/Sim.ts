@@ -420,36 +420,64 @@ export class Sim {
 
         if (isWorkTime && this.action !== 'working' && this.action !== 'commuting') {
             let searchLabels: string[] = [];
+            // [修复] 默认搜索 work 和 work_group
+            let searchCategories: string[] = ['work', 'work_group']; 
+
             if (this.job.companyType === 'internet') {
-                searchLabels = this.job.level >= 4 ? ['CTO'] : ['开发'];
+                searchLabels = this.job.level >= 4 ? ['红木班台'] : ['升降办公桌', '控制台'];
             } else if (this.job.companyType === 'design') {
-                searchLabels = this.job.level >= 4 ? ['总监'] : ['设计'];
+                searchLabels = ['画架'];
+                searchCategories.push('paint');
             } else if (this.job.companyType === 'business') {
-                searchLabels = ['商务', '经理'];
+                searchLabels = this.job.level >= 4 ? ['红木班台'] : ['会议桌'];
             } else if (this.job.companyType === 'store') {
-                searchLabels = ['前台'];
+                searchLabels = ['服务台', '影院服务台', '售票'];
+                searchCategories.push('pay');
             } else if (this.job.companyType === 'restaurant') {
-                searchLabels = this.job.title.includes('厨') ? ['后厨'] : ['前台', '雅座']; 
+                if (this.job.title.includes('厨')) {
+                    searchLabels = ['后厨'];
+                } else {
+                    searchLabels = ['餐厅前台', '雅座'];
+                    searchCategories.push('eat_out');
+                }
             }
 
-            const workDesks = GameStore.furnitureIndex.get('work') || [];
-            const desk = workDesks.find(f =>
+            // [修复] 聚合所有类别的家具
+            let candidateFurniture: Furniture[] = [];
+            searchCategories.forEach(cat => {
+                const list = GameStore.furnitureIndex.get(cat);
+                if (list) candidateFurniture = candidateFurniture.concat(list);
+            });
+
+            const desk = candidateFurniture.find(f =>
                 searchLabels.some(l => f.label.includes(l)) &&
                 (!f.reserved || f.reserved === this.id) &&
-                !GameStore.sims.some(s => s.id !== this.id && s.interactionTarget?.id === f.id)
+                // [修复] 如果是多人家具(multiUser)，不检查占用
+                (f.multiUser || !GameStore.sims.some(s => s.id !== this.id && s.interactionTarget?.id === f.id))
             );
 
             if (desk) {
-                this.target = { x: desk.x + desk.w / 2, y: desk.y + desk.h / 2 };
+                // 如果是多人家具，增加一点位置随机偏移，避免所有人重叠
+                let targetX = desk.x + desk.w / 2;
+                let targetY = desk.y + desk.h / 2;
+                if (desk.multiUser) {
+                    targetX += (Math.random() - 0.5) * (desk.w * 0.6);
+                    targetY += (Math.random() - 0.5) * (desk.h * 0.6);
+                }
+
+                this.target = { x: targetX, y: targetY };
                 this.interactionTarget = desk;
                 this.action = 'commuting';
                 this.say("去上班 💼", 'act');
             } else {
-                const randomSpot = { x: 800 + Math.random()*100, y: 350 + Math.random()*100 };
+                // 找不到工位时，去地图左上角待机
+                const randomSpot = { x: 50 + Math.random()*400, y: 50 + Math.random()*300 };
                 this.target = randomSpot;
                 this.action = 'commuting';
+                this.say("没位置了...", 'bad');
             }
         } else if (!isWorkTime && (this.action === 'working' || this.action === 'commuting')) {
+            // 下班逻辑保持不变
             this.action = 'idle';
             this.target = null;
             this.interactionTarget = null;

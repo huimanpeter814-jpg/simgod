@@ -8,45 +8,54 @@ export const minutes = (m: number) => m * 60;
 // 计算特定职业的工位容量
 export const getJobCapacity = (job: Job) => {
     let searchLabels: string[] = [];
-    
-    // Level 1-3 share common desks, Level 4 gets executive desks (where available)
+    // 默认搜索 work 和 work_group (涵盖普通工位和会议桌)
+    let searchCategories: string[] = ['work', 'work_group']; 
+
     if (job.companyType === 'internet') {
-        searchLabels = job.level >= 4 ? ['CTO'] : ['开发'];
+        searchLabels = job.level >= 4 ? ['红木班台'] : ['升降办公桌', '控制台'];
     } else if (job.companyType === 'design') {
-        searchLabels = job.level >= 4 ? ['总监'] : ['设计'];
+        searchLabels = ['画架'];
+        searchCategories.push('paint'); // 画架在 paint 分类
     } else if (job.companyType === 'business') {
-        // Business L4 shares normal desks currently unless we add a specific manager desk
-        searchLabels = ['商务', '经理']; 
+        searchLabels = job.level >= 4 ? ['红木班台'] : ['会议桌'];
     } else if (job.companyType === 'store') {
-        // [修改] 增加 '售票' 关键词，让电影院员工能找到 ticket_booth
-        searchLabels = ['前台', '管理', '售票', '柜台','服务台'];
+        searchLabels = ['服务台', '影院服务台', '售票'];
+        searchCategories.push('pay'); // 售票处在 pay 分类
     } else if (job.companyType === 'restaurant') {
-        // [修改] 确保这些关键词匹配 scene.ts 里的 label
-        // 后厨 -> 匹配 '后厨备菜台', '后厨灶台'
-        // 前台/雅座 -> 匹配 '餐厅前台', '雅座'
-        searchLabels = job.title.includes('厨') ? ['后厨', '灶台'] : ['餐厅前台', '雅座']; 
-    }
-    else {
+        if (job.title.includes('厨')) {
+            searchLabels = ['后厨'];
+        } else {
+            searchLabels = ['餐厅前台', '雅座'];
+            searchCategories.push('eat_out'); // 雅座在 eat_out 分类
+        }
+    } else {
         return 0; // Unemployed
     }
 
     // 统计符合该职业需求的家具数量
-    // For waiters/store clerks, we might want higher capacity than just 1 counter
-    // Simple heuristic: if it's a service job, allow more capacity than furniture count to simulate "standing"
     let capacity = FURNITURE.filter(f => 
-        f.utility === 'work' && searchLabels.some(l => f.label.includes(l))
+        searchCategories.includes(f.utility) && 
+        searchLabels.some(l => f.label.includes(l))
     ).length;
 
+    // [特殊调整]
+    // 1. 会议桌是多人使用的，需要增加容量倍率
+    if (searchLabels.includes('会议桌')) {
+        capacity *= 4; // 假设一张会议桌能坐4人
+    }
+
+    // 2. 餐厅服务员/商店店员稍微放宽一点
     if (job.companyType === 'store' || job.companyType === 'restaurant') {
-        capacity += 2; // Allow some slack for service workers
+        capacity = Math.max(capacity, 2); 
+        if (job.level < 3) capacity *= 2; 
     }
     
-    // For level 4 (Bosses), strictly limit to 1 per unique furniture usually
+    // 3. 老板位通常唯一
     if (job.level === 4 && job.companyType !== 'restaurant') {
         return Math.max(1, capacity);
     }
 
-    return Math.max(1, capacity * 2); // Assume 2 shifts or shared desks for lower levels
+    return Math.max(1, capacity);
 };
 
 // 绘制头像 (支持图片绘制)
