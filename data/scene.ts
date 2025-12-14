@@ -453,7 +453,7 @@ export const FURNITURE: Furniture[] = [
 
     { id: 'duck_boat_1', x: 900, y: 700, w: 44, h: 34, color: '#ffdd59', label: '小黄鸭船', utility: 'play', pixelPattern: 'boat_duck' },
     { id: 'duck_boat_2', x: 1200, y: 750, w: 44, h: 34, color: '#ffdd59', label: '小黄鸭船', utility: 'play', pixelPattern: 'boat_duck' },
-    { id: 'wooden_pier', x: 1050, y: 890, w: 108, h: 64, color: '#d4bcaa', label: '亲水平台', utility: 'none', pixelPattern: 'pier_wood' },
+    { id: 'wooden_pier', x: 1050, y: 890, w: 108, h: 64, color: '#d4bcaa', label: '亲水平台', utility: 'play', pixelPattern: 'pier_wood' },
     
     ...createRow('park_bench_t', 850, 580, 5, 110, 0, { 
         w: 54, h: 24, 
@@ -481,9 +481,9 @@ export const FURNITURE: Furniture[] = [
         pixelPattern: 'fishing_rod' // 需确保 assets 或绘制逻辑支持，或者用 generic
     }),
     
-    { id: 'picnic_mat_a', x: 700, y: 900, w: 108, h: 84, color: '#ff6b81', label: '野餐垫', utility: 'none', pixelPattern: 'picnic_mat' },
-    { id: 'picnic_basket', x: 720, y: 920, w: 34, h: 24, color: '#d4bcaa', label: '野餐篮', utility: 'eat', pixelPattern: 'basket' },
-    { id: 'picnic_mat_b', x: 820, y: 1000, w: 108, h: 84, color: '#5a8fff', label: '野餐垫', utility: 'none', pixelPattern: 'picnic_mat' },
+    { id: 'picnic_mat_a', x: 700, y: 900, w: 108, h: 84, color: '#ff6b81', label: '野餐垫', utility: 'hunger', pixelPattern: 'picnic_mat' },
+    { id: 'picnic_basket', x: 720, y: 920, w: 34, h: 24, color: '#d4bcaa', label: '野餐篮', utility: 'hunger', pixelPattern: 'basket' },
+    { id: 'picnic_mat_b', x: 820, y: 1000, w: 108, h: 84, color: '#5a8fff', label: '野餐垫', utility: 'hunger', pixelPattern: 'picnic_mat' },
     
     { id: 'food_cart_1', x: 980, y: 980, w: 64, h: 44, color: '#d35400', label: '热狗餐车', utility: 'buy_food', pixelPattern: 'food_cart' },
     { id: 'food_cart_umbrella', x: 1100, y: 980, w: 44, h: 44, color: '#ff9c8a', label: '遮阳伞', utility: 'none', pixelPattern: 'umbrella' },
@@ -515,19 +515,19 @@ export const FURNITURE: Furniture[] = [
         utility: 'work',
         pixelPattern: 'desk_simple'
     }),
-    { id: 'dorm_toilet_block', x: 400, y: 520, w: 64, h: 258, color: '#ffffff', label: '公共卫浴', utility: 'none', pixelPattern: 'toilet_block' },
+    { id: 'dorm_toilet_block', x: 400, y: 520, w: 64, h: 258, color: '#ffffff', label: '公共卫浴', utility: 'hygiene', pixelPattern: 'toilet_block' },
     ...createRow('dorm_toilet', 410, 530, 4, 0, 60, { 
         w: 34, h: 34, 
         color: '#5a8fff', 
         label: '马桶', 
-        utility: 'comfort',
+        utility: 'bladder',
         pixelPattern: 'toilet'
     }),
     ...createRow('dorm_shower', 350, 600, 3, 0, 50, {
         w: 34, h: 44,
         color: '#81ecec',
         label: '公共淋浴',
-        utility: 'shower',
+        utility: 'hygiene',
         pixelPattern: 'shower_stall'
     }),
     
@@ -543,14 +543,14 @@ export const FURNITURE: Furniture[] = [
         w: 34, h: 34, 
         color: '#ffffff', 
         label: '冰箱', 
-        utility: 'none',
+        utility: 'hunger',
         pixelPattern: 'fridge'
     }),
     ...createGrid('apt_table', 80, 890, 2, 2, 200, 140, { 
         w: 64, h: 64, 
         color: '#ffd166', 
         label: '餐桌', 
-        utility: 'eat',
+        utility: 'hunger',
         pixelPattern: 'table_kitchen'
     }),
     
@@ -562,8 +562,8 @@ export const FURNITURE: Furniture[] = [
         utility: 'comfort',
         pixelPattern: 'sofa_lazy'
     }),
-    { id: 'pizza_box', x: 80, y: 1210, w: 24, h: 24, color: '#ff9c8a', label: '披萨盒', utility: 'eat', pixelPattern: 'pizza_box' },
-    { id: 'gaming_tv_wall', x: 250, y: 1150, w: 158, h: 12, color: '#1a1e2c', label: '电视墙', utility: 'none', pixelPattern: 'tv_wall' },
+    { id: 'pizza_box', x: 80, y: 1210, w: 24, h: 24, color: '#ff9c8a', label: '披萨盒', utility: 'hunger', pixelPattern: 'pizza_box' },
+    { id: 'gaming_tv_wall', x: 250, y: 1150, w: 158, h: 12, color: '#1a1e2c', label: '电视墙', utility: 'play', pixelPattern: 'tv_wall' },
     { id: 'console_ps5', x: 260, y: 1170, w: 34, h: 24, color: '#ffffff', label: '游戏主机', utility: 'play', pixelPattern: 'console_game' },
     
     // Community Center
@@ -576,7 +576,7 @@ export const FURNITURE: Furniture[] = [
         pixelPattern: 'mahjong_table'
     }),
     { id: 'pingpong', x: 350, y: 1700, w: 94, h: 54, color: '#4a7dff', label: '乒乓球桌', utility: 'play', pixelPattern: 'pingpong_table' },
-    { id: 'community_notice', x: 350, y: 1480, w: 64, h: 12, color: '#8a7cff', label: '公告栏', utility: 'read', pixelPattern: 'notice_board' },
+    { id: 'community_notice', x: 350, y: 1480, w: 64, h: 12, color: '#8a7cff', label: '公告栏', utility: 'none', pixelPattern: 'notice_board' },
 
     // -----------------------------------------------------
     // 🛍️ 商业街 - 像素购物风
@@ -741,7 +741,7 @@ export const FURNITURE: Furniture[] = [
         w: 34, h: 44, 
         color: '#81ecec', 
         label: '淋浴间', 
-        utility: 'shower', // 新增交互类型
+        utility: 'hygiene', // 新增交互类型
         dir: 'left',
         pixelPattern: 'shower_stall'
     }),

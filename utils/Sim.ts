@@ -4,7 +4,6 @@ import { GameStore } from './simulation';
 import { minutes, getJobCapacity } from './simulationHelpers';
 import { SocialLogic } from './logic/social';
 import { DecisionLogic } from './logic/decision';
-// [修复1] 引入 InteractionHandler 类型以解决 TS 报错
 import { INTERACTIONS, RESTORE_TIMES, InteractionHandler } from './logic/interactionRegistry';
 
 export class Sim {
@@ -41,6 +40,7 @@ export class Sim {
     dailyExpense: number;
     dailyIncome: number; 
     isSideHustle: boolean = false;
+    currentShiftStart: number = 0; // [新] 记录当前班次开始时间
 
     metabolism: any;
     skillModifiers: Record<string, number>;
@@ -301,6 +301,36 @@ export class Sim {
         this.addBuff(BUFFS.side_hustle_win);
     }
 
+    // [新] 早退逻辑
+    leaveWorkEarly() {
+        const currentHour = GameStore.time.hour + GameStore.time.minute / 60;
+        let startHour = this.currentShiftStart || this.job.startHour;
+        const totalDuration = this.job.endHour - this.job.startHour;
+
+        // 防止跨午夜导致负数（虽然当前 job 配置暂无跨午夜，但为了健壮性）
+        let workedDuration = currentHour - startHour;
+        if (workedDuration < 0) workedDuration += 24;
+
+        // 计算实际工作比例
+        const workRatio = Math.max(0, Math.min(1, workedDuration / totalDuration));
+        
+        // 按比例发工资
+        const actualPay = Math.floor(this.job.salary * workRatio);
+        this.money += actualPay;
+        this.dailyIncome += actualPay;
+
+        this.action = 'idle';
+        this.target = null;
+        this.interactionTarget = null;
+        
+        this.addBuff(BUFFS.stressed);
+        // 增加负面状态
+        this.needs.fun = Math.max(0, this.needs.fun - 20);
+        
+        GameStore.addLog(this, `因精力耗尽早退。实发工资: $${actualPay} (占比 ${(workRatio*100).toFixed(0)}%)`, 'money');
+        this.say("太累了，先溜了... 😓", 'bad');
+    }
+
     update(dt: number, minuteChanged: boolean) {
         this.prevPos = { ...this.pos };
         const f = 0.0008 * dt;
@@ -313,6 +343,22 @@ export class Sim {
         this.checkSchedule();
         this.updateMood();
 
+        // [新] 负面需求 Debuff 检查
+        if (minuteChanged) { // 每分钟检查一次即可
+            if (this.needs.social < 20 && !this.hasBuff('lonely')) {
+                this.addBuff(BUFFS.lonely);
+                this.say("好孤独...", 'bad');
+            }
+            if (this.needs.fun < 20 && !this.hasBuff('bored')) {
+                this.addBuff(BUFFS.bored);
+                this.say("无聊透顶...", 'bad');
+            }
+            if (this.needs.hygiene < 20 && !this.hasBuff('smelly')) {
+                this.addBuff(BUFFS.smelly);
+                this.say("身上有味了...", 'bad');
+            }
+        }
+
         // 2. 状态消耗
         if (this.action !== 'sleeping') this.needs.energy -= BASE_DECAY.energy * this.metabolism.energy * f;
         if (this.action !== 'eating') this.needs.hunger -= BASE_DECAY.hunger * this.metabolism.hunger * f;
@@ -322,6 +368,24 @@ export class Sim {
         if (this.action !== 'talking' && this.action !== 'watching_movie') this.needs.social -= BASE_DECAY.social * this.metabolism.social * f;
 
         const getRate = (mins: number) => (100 / (mins * 60)) * dt;
+
+        // [新] 工作期间的状态自动维护与早退判定
+        if (this.action === 'working' && !this.isSideHustle) {
+            // 2.1 自动补充
+            if (this.needs.hunger < 20) {
+                this.needs.hunger = 80;
+                this.say("摸鱼吃零食 🍫", 'act');
+            }
+            if (this.needs.bladder < 20) {
+                this.needs.bladder = 80;
+                this.say("带薪如厕 🚽", 'act');
+            }
+
+            // 2.2 精力不足早退判定
+            if (this.needs.energy < 15) {
+                this.leaveWorkEarly();
+            }
+        }
 
         // 3. 动作恢复逻辑
         if (this.action === 'talking') {
@@ -339,18 +403,14 @@ export class Sim {
         else if (this.interactionTarget) {
             const obj = this.interactionTarget;
             
-            // [修复2] 增加对 'human' 类型目标的保护检查，防止读取 undefined utility 导致崩溃
+            // [修复] 增加对 'human' 类型目标的保护检查
             if (obj.type === 'human' || !obj.utility) {
-                // 如果是人类目标，通常 action 应该是 'talking'，会被上面的 if 捕获。
-                // 如果落到这里，说明状态异常（比如 idle 但 target 是人），安全起见不做处理或重置。
             } 
-            // 处理 'work' 类型的特殊逻辑
             else if (obj.utility === 'work') {
                 if (this.action !== 'working') this.action = 'working';
             } else {
                 let handler = INTERACTIONS[obj.utility];
                 if (!handler) {
-                     // 确保 obj.utility 存在再调用 startsWith
                      const prefixKey = Object.keys(INTERACTIONS).find(k => k.endsWith('_') && obj.utility && obj.utility.startsWith(k));
                      if (prefixKey) handler = INTERACTIONS[prefixKey];
                 }
@@ -371,17 +431,14 @@ export class Sim {
             if (this.actionTimer <= 0) this.finishAction();
         } 
         else if (!this.target) {
-            // [核心逻辑] 只有非工作状态才允许自主决策
             const currentHour = GameStore.time.hour;
             const isWorkDay = this.job.workDays.includes(GameStore.time.weekday);
             const isWorkTime = this.job.id !== 'unemployed' && isWorkDay && 
                                currentHour >= this.job.startHour && currentHour < this.job.endHour;
 
             if (isWorkTime) {
-                // 如果是工作时间，且现在没在通勤也没在工作（比如刚 finishAction 变成 idle），
-                // 这里的 else 分支什么都不做，完全交给 checkSchedule 在下一帧接管
+                // 如果是工作时间，且现在没在通勤也没在工作，交给 checkSchedule
             } else {
-                // 只有非工作时间，或者自由职业，才允许乱跑
                 if (this.action !== 'commuting' && this.action !== 'working') {
                     if (this.action === 'moving') this.action = 'idle';
                     DecisionLogic.decideAction(this);
@@ -401,11 +458,10 @@ export class Sim {
             
             const moveStep = this.speed * speedMod * (dt * 0.1);
 
-            // [超级宽松的到达判定]
             if (dist <= 10 || dist <= moveStep + 2) {
-                this.pos = { ...this.target }; // 强制吸附
+                this.pos = { ...this.target }; 
                 this.target = null;
-                this.commuteTimer = 0; // 重置卡死计时器
+                this.commuteTimer = 0; 
                 this.startInteraction();
             } else {
                 const angle = Math.atan2(dy, dx);
@@ -418,7 +474,6 @@ export class Sim {
                 this.pos.x = nextX;
                 this.pos.y = nextY;
                 
-                // 只有在非通勤状态才设为 moving，避免覆盖 commuting 状态
                 if (this.action !== 'commuting') {
                     this.action = 'moving';
                 }
@@ -433,7 +488,6 @@ export class Sim {
         const isHoliday = HOLIDAYS.some(h => h.month === GameStore.time.month && h.day === GameStore.time.date);
         const isWorkDay = this.job.workDays.includes(GameStore.time.weekday);
 
-        // 如果是节假日或非工作日，直接返回
         if (isHoliday || !isWorkDay) return;
 
         const currentHour = GameStore.time.hour;
@@ -441,15 +495,13 @@ export class Sim {
 
         // === 上班逻辑 ===
         if (isWorkTime) {
-            // 1. 如果已经在工作，不做任何事
             if (this.action === 'working') return;
-            // 2. 如果已经在去上班的路上，且目标正确，不做任何事
             if (this.action === 'commuting' && this.interactionTarget?.utility === 'work') return;
             
-            // 3. 否则，强制开始上班流程
             this.isSideHustle = false; 
+            // [新] 记录上班开始时间，用于早退计算工资
+            this.currentShiftStart = GameStore.time.hour + GameStore.time.minute / 60;
 
-            // 寻找工位逻辑
             let searchLabels: string[] = [];
             let searchCategories: string[] = ['work', 'work_group']; 
 
@@ -492,7 +544,6 @@ export class Sim {
                 targetY += (Math.random() - 0.5) * 15;
 
                 this.target = { x: targetX, y: targetY };
-                // [关键] 强制覆写 utility 为 work
                 this.interactionTarget = { ...desk, utility: 'work' };
                 this.action = 'commuting';
                 this.actionTimer = 0; 
@@ -513,13 +564,15 @@ export class Sim {
                 this.say("站着上班 💼", 'bad');
             }
         } 
-        // === 下班逻辑 ===
+        // === 下班逻辑 (正常下班) ===
         else if (!isWorkTime && (this.action === 'working' || this.action === 'commuting')) {
              if (this.action === 'commuting' && this.interactionTarget?.utility !== 'work') return;
 
             this.action = 'idle';
             this.target = null;
             this.interactionTarget = null;
+            
+            // 正常下班，全额发薪
             this.money += this.job.salary;
             this.dailyIncome += this.job.salary;
             this.say(`下班! +$${this.job.salary}`, 'money');
@@ -652,7 +705,6 @@ export class Sim {
                 this.say(`买! -${obj.cost}`, 'money');
             }
 
-            // [修复1] 显式类型声明 InteractionHandler | null
             let handler: InteractionHandler | null = null;
             if (INTERACTIONS && obj.utility) {
                 handler = INTERACTIONS[obj.utility];

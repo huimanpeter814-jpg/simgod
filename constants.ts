@@ -145,6 +145,11 @@ export const BUFFS = {
     fired: { id: 'fired', label: '毕业优化', type: 'bad' as const, duration: 300 },
     art_inspired: { id: 'art_inspired', label: '缪斯降临', type: 'good' as const, duration: 150 },
     playful: { id: 'playful', label: '童心未泯', type: 'good' as const, duration: 90 },
+    
+    // [新] 负面状态 Buff
+    lonely: { id: 'lonely', label: '孤独', type: 'bad' as const, duration: 60 },
+    bored: { id: 'bored', label: '无聊', type: 'bad' as const, duration: 60 },
+    smelly: { id: 'smelly', label: '邋遢', type: 'bad' as const, duration: 60 },
 };
 
 export const HOLIDAYS = [

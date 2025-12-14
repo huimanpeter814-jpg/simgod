@@ -8,7 +8,7 @@ export { drawAvatarHead, minutes, getJobCapacity } from './simulationHelpers';
 export class GameStore {
     static sims: Sim[] = [];
     static particles: { x: number; y: number; life: number }[] = [];
-    static time: GameTime = { day: 1, hour: 8, minute: 0, speed: 2, weekday: 1, month: 1, date: 1 };
+    static time: GameTime = { day: 1, hour: 8, minute: 0, speed: 2, weekday: 1, month: 1, date: 2 };
     static timeAccumulator: number = 0;
     static logs: LogEntry[] = [];
     static selectedSimId: string | null = null;
