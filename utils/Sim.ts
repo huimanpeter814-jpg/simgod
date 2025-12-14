@@ -40,13 +40,14 @@ export class Sim {
     dailyExpense: number;
     dailyIncome: number; 
     isSideHustle: boolean = false;
-    currentShiftStart: number = 0; 
+    currentShiftStart: number = 0;
+    
+    hasLeftWorkToday: boolean = false;
 
     metabolism: any;
     skillModifiers: Record<string, number>;
     socialModifier: number;
 
-    // [新增] 记忆列表
     memories: Memory[] = [];
 
     action: string;
@@ -140,14 +141,12 @@ export class Sim {
         this.calculateDailyBudget();
         GameStore.addLog(this, `搬进了社区。职位: ${this.job.title}`, 'sys');
         
-        // [记录] 初始记忆
         this.addMemory(`搬进了社区，开始了新生活。`, 'life');
         if (this.job.id !== 'unemployed') {
             this.addMemory(`找到了一份新工作：${this.job.title}`, 'job');
         }
     }
 
-    // [新增] 添加记忆的方法
     addMemory(text: string, type: Memory['type'], relatedSimId?: string) {
         const timeStr = `Day ${GameStore.time.day} ${String(GameStore.time.hour).padStart(2, '0')}:${String(GameStore.time.minute).padStart(2, '0')}`;
         const newMemory: Memory = {
@@ -157,9 +156,7 @@ export class Sim {
             text: text,
             relatedSimId: relatedSimId
         };
-        // 放在最前面，最新的记忆在上面
         this.memories.unshift(newMemory);
-        // 限制记忆数量，防止无限增长
         if (this.memories.length > 50) {
             this.memories.pop();
         }
@@ -168,20 +165,62 @@ export class Sim {
     generateName() { return SURNAMES[Math.floor(Math.random() * SURNAMES.length)] + GIVEN_NAMES[Math.floor(Math.random() * GIVEN_NAMES.length)]; }
 
     applyTraits() {
-        if (this.mbti.includes('E')) { this.metabolism.social = 1.5; this.socialModifier *= 1.1; }
-        else { this.metabolism.social = 0.7; }
+        // [重构] 更细致的代谢和属性修正
+        
+        // 1. MBTI 影响 (基础)
+        if (this.mbti.includes('E')) { 
+            this.metabolism.social = 1.6; // E人：社交能量消耗很快，需要经常补
+            this.socialModifier *= 1.2; 
+        } else { 
+            this.metabolism.social = 0.6; // I人：非常耐得住寂寞
+            this.socialModifier *= 0.9;
+        }
+
         if (this.mbti.includes('N')) { this.skillModifiers.logic = 1.3; this.skillModifiers.creativity = 1.3; this.skillModifiers.music = 1.2; }
         else { this.skillModifiers.cooking = 1.3; this.skillModifiers.athletics = 1.3; this.skillModifiers.gardening = 1.3; }
+        
         if (this.mbti.includes('F')) { this.socialModifier *= 1.3; this.skillModifiers.dancing = 1.2; }
         else { this.socialModifier *= 0.8; this.skillModifiers.logic *= 1.2; }
+        
         if (this.mbti.includes('J')) { this.metabolism.hygiene = 0.8; this.metabolism.energy = 0.9; }
         else { this.metabolism.fun = 1.4; this.skillModifiers.creativity *= 1.1; }
 
+        // 2. 星座影响
         const el = this.zodiac.element;
-        if (el === 'fire') { this.skillModifiers.athletics *= 1.2; this.metabolism.energy *= 0.9; }
-        else if (el === 'earth') { this.skillModifiers.gardening *= 1.2; this.skillModifiers.cooking *= 1.2; this.metabolism.hunger *= 0.8; }
-        else if (el === 'air') { this.skillModifiers.logic *= 1.1; this.skillModifiers.music *= 1.2; this.metabolism.social *= 1.2; }
-        else if (el === 'water') { this.skillModifiers.creativity *= 1.3; this.skillModifiers.dancing *= 1.1; }
+        if (el === 'fire') { // 火象 (白羊/狮子/射手)
+            this.skillModifiers.athletics *= 1.2; 
+            this.metabolism.energy *= 0.9;
+            this.metabolism.social *= 1.2; // 热情，需要观众
+        }
+        else if (el === 'earth') { // 土象 (金牛/处女/摩羯)
+            this.skillModifiers.gardening *= 1.2; 
+            this.skillModifiers.cooking *= 1.2; 
+            this.metabolism.hunger *= 0.8;
+            this.metabolism.social *= 0.9; // 务实，不爱无效社交
+        }
+        else if (el === 'air') { // 风象 (双子/天秤/水瓶)
+            this.skillModifiers.logic *= 1.1; 
+            this.skillModifiers.music *= 1.2; 
+            this.metabolism.social *= 1.4; // 话痨，必须要交流
+        }
+        else if (el === 'water') { // 水象 (巨蟹/天蝎/双鱼)
+            this.skillModifiers.creativity *= 1.3; 
+            this.skillModifiers.dancing *= 1.1;
+            // 水象更需要深层情感，而不是频繁社交，所以代谢不一定快，但Modifier高
+            this.socialModifier *= 1.2;
+        }
+
+        // 3. 人生目标影响 (Life Goals)
+        if (this.lifeGoal.includes('万人迷') || this.lifeGoal.includes('派对')) {
+            this.metabolism.social *= 1.5; // 为了维持人设，必须不停社交
+            this.socialModifier *= 1.2;
+        }
+        if (this.lifeGoal.includes('隐居') || this.lifeGoal.includes('独处')) {
+            this.metabolism.social *= 0.4; // 极其耐得住寂寞
+        }
+        if (this.lifeGoal.includes('富翁') || this.lifeGoal.includes('大亨')) {
+            this.metabolism.fun *= 1.2; // 有钱人的枯燥
+        }
     }
 
     calculateDailyBudget() {
@@ -270,7 +309,6 @@ export class Sim {
         
         if (Math.random() * 100 < quitScore && quitScore > 50) {
             GameStore.addLog(this, `决定辞职... "这工作不适合我"`, 'sys');
-            // [记录] 辞职记忆
             this.addMemory(`辞去了 ${this.job.title} 的工作，想要休息一段时间。`, 'job');
             
             this.job = JOBS.find(j => j.id === 'unemployed')!;
@@ -314,7 +352,6 @@ export class Sim {
                     SocialLogic.updateRelationship(lover, this, 'romance', 10);
                     lover.needs.fun = Math.min(100, lover.needs.fun + 20);
                     logSuffix = ` (送给 ${lover.name})`;
-                    // [记录] 送礼记忆
                     this.addMemory(`给 ${lover.name} 买了 ${item.label}，希望Ta喜欢。`, 'social', lover.id);
                 }
             }
@@ -350,7 +387,8 @@ export class Sim {
         this.action = 'idle';
         this.target = null;
         this.interactionTarget = null;
-        
+        this.hasLeftWorkToday = true;
+
         this.addBuff(BUFFS.stressed);
         this.needs.fun = Math.max(0, this.needs.fun - 20);
         
@@ -452,6 +490,10 @@ export class Sim {
                                currentHour >= this.job.startHour && currentHour < this.job.endHour;
 
             if (isWorkTime) {
+                if (this.action !== 'commuting' && this.action !== 'working') {
+                     if (this.action === 'moving') this.action = 'idle';
+                     DecisionLogic.decideAction(this);
+                }
             } else {
                 if (this.action !== 'commuting' && this.action !== 'working') {
                     if (this.action === 'moving') this.action = 'idle';
@@ -507,6 +549,8 @@ export class Sim {
         const isWorkTime = currentHour >= this.job.startHour && currentHour < this.job.endHour;
 
         if (isWorkTime) {
+            if (this.hasLeftWorkToday) return;
+
             if (this.action === 'working') return;
             if (this.action === 'commuting' && this.interactionTarget?.utility === 'work') return;
             
@@ -575,23 +619,27 @@ export class Sim {
                 this.say("站着上班 💼", 'bad');
             }
         } 
-        else if (!isWorkTime && (this.action === 'working' || this.action === 'commuting')) {
-             if (this.action === 'commuting' && this.interactionTarget?.utility !== 'work') return;
+        else {
+            this.hasLeftWorkToday = false;
 
-            this.action = 'idle';
-            this.target = null;
-            this.interactionTarget = null;
-            
-            this.money += this.job.salary;
-            this.dailyIncome += this.job.salary;
-            this.say(`下班! +$${this.job.salary}`, 'money');
-            this.addBuff(BUFFS.stressed);
+            if (this.action === 'working' || this.action === 'commuting') {
+                 if (this.action === 'commuting' && this.interactionTarget?.utility !== 'work') return;
 
-            let dailyPerf = 5; 
-            if (this.job.companyType === 'internet' && this.skills.logic > 50) dailyPerf += 5;
-            if (this.workPerformance > 500 && this.job.level < 4) {
-                this.promote();
-                this.workPerformance = 100;
+                this.action = 'idle';
+                this.target = null;
+                this.interactionTarget = null;
+                
+                this.money += this.job.salary;
+                this.dailyIncome += this.job.salary;
+                this.say(`下班! +$${this.job.salary}`, 'money');
+                this.addBuff(BUFFS.stressed);
+
+                let dailyPerf = 5; 
+                if (this.job.companyType === 'internet' && this.skills.logic > 50) dailyPerf += 5;
+                if (this.workPerformance > 500 && this.job.level < 4) {
+                    this.promote();
+                    this.workPerformance = 100;
+                }
             }
         }
     }
@@ -610,7 +658,6 @@ export class Sim {
             GameStore.addLog(this, `升职了！现在是 ${nextLevel.title} (Lv.${nextLevel.level})`, 'sys');
             this.say("升职啦! 🚀", 'act');
             this.addBuff(BUFFS.promoted);
-            // [记录] 升职记忆
             this.addMemory(`因为表现优异，升职为 ${nextLevel.title}！`, 'job');
         } else {
             const victim = currentHolders.sort((a, b) => a.workPerformance - b.workPerformance)[0];
@@ -626,7 +673,6 @@ export class Sim {
                 GameStore.addLog(this, `PK 成功！取代了 ${victim.name} 成为 ${nextLevel.title}`, 'sys');
                 this.say("我赢了! 👑", 'act');
                 victim.say("可恶... 😭", 'bad');
-                // [记录] 竞争升职记忆
                 this.addMemory(`在职场竞争中击败了 ${victim.name}，成功晋升为 ${nextLevel.title}。`, 'job', victim.id);
                 victim.addMemory(`在职场竞争中输给了 ${this.name}，被降职了...`, 'bad', this.id);
             } else {
@@ -723,7 +769,7 @@ export class Sim {
             if (INTERACTIONS && obj.utility) {
                 handler = INTERACTIONS[obj.utility];
                 if (!handler) {
-                     const prefixKey = Object.keys(INTERACTIONS).find(k => k.endsWith('_') && obj.utility.startsWith(k));
+                     const prefixKey = Object.keys(INTERACTIONS).find(k => k.endsWith('_') && obj.utility && obj.utility.startsWith(k));
                      if (prefixKey) handler = INTERACTIONS[prefixKey];
                 }
                 if (!handler) handler = INTERACTIONS['default'];

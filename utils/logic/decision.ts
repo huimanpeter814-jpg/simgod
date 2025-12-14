@@ -27,11 +27,34 @@ export const DecisionLogic = {
             { id: 'bladder', score: (100 - sim.needs.bladder) * 2.8, type: 'obj' },
             { id: 'hygiene', score: (100 - sim.needs.hygiene) * 1.5, type: 'obj' },
             { id: 'fun', score: (100 - sim.needs.fun) * 1.2, type: 'fun' },
-            { id: 'social', score: (100 - sim.needs.social) * 1.5, type: 'social' }
+            // { id: 'social', score: (100 - sim.needs.social) * 1.5, type: 'social' } // 移除旧的简单逻辑
         ];
 
+        // [新增] 复杂的社交需求权重计算
+        // 基础分：需求缺口
+        let socialScore = (100 - sim.needs.social) * 1.5;
+
+        // MBTI 修正：E人更容易发起社交，I人较被动
+        if (sim.mbti.startsWith('E')) socialScore *= 1.4;
+        else if (sim.mbti.startsWith('I')) socialScore *= 0.8;
+
+        // 星座修正：风象(Air)和火象(Fire)更主动
+        if (['air', 'fire'].includes(sim.zodiac.element)) socialScore *= 1.2;
+
+        // 人生目标修正
+        if (['万人迷', '派对之王', '交际花', '政坛领袖'].some(g => sim.lifeGoal.includes(g))) {
+            socialScore *= 1.5; // 渴望成为焦点
+        } else if (['隐居', '独处', '黑客', '作家'].some(g => sim.lifeGoal.includes(g))) {
+            socialScore *= 0.6; // 更喜欢独处
+        }
+
+        // 心情修正：心情太差时不想理人
+        if (sim.mood < 30) socialScore *= 0.3;
+
+        scores.push({ id: 'social', score: socialScore, type: 'social' });
+
+
         // [核心逻辑] 只有无业游民(自由职业)才会尝试赚钱 (Side Hustle)
-        // 避免上班族在下班时间去抢电脑赚外快，上班族依靠薪水生活
         if (sim.job.id === 'unemployed') {
             let moneyDesire = 0;
             if (sim.money < 500) moneyDesire = 200; 
@@ -56,7 +79,7 @@ export const DecisionLogic = {
 
         // 特殊活动加分
         if (sim.needs.fun < 50 && sim.money > 100) {
-            scores.push({ id: 'cinema_imax', score: 90, type: 'obj' });
+            scores.push({ id: 'cinema_3d', score: 90, type: 'obj' });
             scores.push({ id: 'gym_run', score: 60, type: 'obj' });
         }
         
@@ -70,13 +93,8 @@ export const DecisionLogic = {
             scores.push({ id: 'play', score: 80, type: 'obj' });
         }
 
-        // 性格影响社交加分
-        let socialNeed = scores.find(s => s.id === 'social');
-        if (socialNeed) {
-            if (sim.mbti.startsWith('E')) socialNeed.score *= 1.5;
-            if (sim.mood < 30) socialNeed.score = 0;
-        }
-
+        // 性格影响社交加分 (这部分已合并到上方)
+        
         // 3. 做出决策
         scores.sort((a, b) => b.score - a.score);
         let choice = scores[Math.floor(Math.random() * Math.min(scores.length, 3))];
@@ -200,31 +218,40 @@ export const DecisionLogic = {
                 
                 sim.target = { x: obj.x + obj.w / 2, y: obj.y + obj.h / 2 };
                 sim.interactionTarget = obj;
-                // [调试]
-                // console.log(`${sim.name} decided to satisfy ${type} at ${obj.label}`);
                 return;
             } else {
-                // [调试] 找到了类型但都被占用或买不起
-                // console.log(`${sim.name} found candidates for ${type} but filtered out (money: ${sim.money})`);
                 sim.say("没钱/没位置...", 'bad');
             }
-        } else {
-             // [调试] 没找到任何该类型的家具
-              console.log(`${sim.name} could not find any object for ${type}`);
         }
         DecisionLogic.wander(sim);
     },
 
     findHuman(sim: Sim) {
         let others = GameStore.sims.filter(s => s.id !== sim.id && s.action !== 'sleeping' && s.action !== 'working');
+        
+        // [修复列表偏差 1] 先进行随机打乱
+        // 防止 relationship 数值一样（比如都是0）时，sort 保持原数组顺序（即创建顺序）
+        // 这样前几个创建的居民就不会总是排在前面了
+        others.sort(() => Math.random() - 0.5);
+
+        // [修复列表偏差 2] 再按照关系度排序
         others.sort((a, b) => {
             let relA = (sim.relationships[a.id]?.friendship || 0);
             let relB = (sim.relationships[b.id]?.friendship || 0);
-            return relB - relA;
+            return relB - relA; // 降序：好友在前
         });
 
         if (others.length) {
-            let partner = others[Math.floor(Math.random() * Math.min(others.length, 3))];
+            // [逻辑优化] 
+            // 如果最好的关系度都很低（<20，说明大家都是陌生人），则扩大候选池范围（比如前10人）
+            // 如果有熟人（关系度高），则缩小范围优先找熟人（前3人）
+            const bestRel = sim.relationships[others[0].id]?.friendship || 0;
+            let poolSize = bestRel < 20 ? 10 : 3;
+            
+            // 确保不越界
+            poolSize = Math.min(others.length, poolSize);
+
+            let partner = others[Math.floor(Math.random() * poolSize)];
             
             const angle = Math.random() * Math.PI * 2;
             const socialDistance = 40;
