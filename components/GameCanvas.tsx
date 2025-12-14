@@ -242,6 +242,87 @@ const drawPixelProp = (ctx: CanvasRenderingContext2D, f: any, p: any) => {
          ctx.fillStyle = 'rgba(0,0,0,0.1)';
          ctx.fillRect(x + 6, y + 6, w - 12, h - 12);
     }
+    // components/GameCanvas.tsx
+
+const drawPixelProp = (ctx: CanvasRenderingContext2D, f: any, p: any) => {
+    const { x, y, w, h, color, pixelPattern } = f;
+    
+    // ... (保留之前的 tree, bed, sofa, pc, server, vending, bench, shelf 等逻辑)
+
+    // [新增] 🎨 艺术品绘制逻辑
+    if (pixelPattern === 'painting') {
+        // 画框
+        ctx.fillStyle = '#dcdde1'; // 银色边框
+        ctx.fillRect(x, y, w, h);
+        // 画布背景
+        ctx.fillStyle = '#f5f6fa';
+        ctx.fillRect(x + 2, y + 2, w - 4, h - 4);
+        
+        // 抽象画内容 (随机色块)
+        const seed = (x + y) % 5; // 伪随机
+        if (seed === 0) { // 蒙德里安风格
+            ctx.fillStyle = '#e84118'; ctx.fillRect(x + 4, y + 4, w/2, h/2);
+            ctx.fillStyle = '#0097e6'; ctx.fillRect(x + w/2 + 2, y + h/2 + 2, w/2 - 6, h/2 - 6);
+            ctx.fillStyle = '#fbc531'; ctx.fillRect(x + w - 10, y + 4, 6, 6);
+        } else if (seed === 1) { // 风景风格
+            ctx.fillStyle = '#4cd137'; ctx.fillRect(x + 4, y + h/2, w - 8, h/2 - 4); // 草地
+            ctx.fillStyle = '#00a8ff'; ctx.fillRect(x + 4, y + 4, w - 8, h/2); // 天空
+            ctx.fillStyle = '#fbc531'; ctx.beginPath(); ctx.arc(x + w - 10, y + 10, 4, 0, Math.PI*2); ctx.fill(); // 太阳
+        } else { // 现代抽象
+            ctx.fillStyle = color; 
+            ctx.beginPath(); ctx.arc(x + w/2, y + h/2, w/4, 0, Math.PI*2); ctx.fill();
+            ctx.strokeStyle = '#2f3640'; ctx.lineWidth = 1; ctx.stroke();
+        }
+        return;
+    }
+
+    if (pixelPattern === 'statue') {
+        // 底座
+        ctx.fillStyle = '#7f8fa6';
+        ctx.fillRect(x + 4, y + h - 10, w - 8, 10);
+        // 雕塑主体 (抽象形状)
+        ctx.fillStyle = '#f5f6fa'; // 石膏白
+        // 身体
+        ctx.fillRect(x + w/2 - 6, y + 10, 12, h - 20);
+        // 头部
+        ctx.beginPath(); ctx.arc(x + w/2, y + 10, 8, 0, Math.PI*2); ctx.fill();
+        // 手臂/装饰
+        ctx.fillStyle = '#dcdde1';
+        ctx.fillRect(x + w/2 - 12, y + 20, 6, 20);
+        ctx.fillRect(x + w/2 + 6, y + 25, 6, 15);
+        
+        // 增加阴影立体感
+        ctx.fillStyle = 'rgba(0,0,0,0.1)';
+        ctx.fillRect(x + w/2 + 2, y + 10, 4, h - 20);
+        return;
+    }
+
+    // [新增] 💎 展示柜
+    if (pixelPattern === 'display_case') {
+        // 玻璃罩
+        ctx.fillStyle = 'rgba(129, 236, 236, 0.3)';
+        ctx.fillRect(x, y, w, h);
+        ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(x, y, w, h);
+        
+        // 底座
+        ctx.fillStyle = '#2f3640';
+        ctx.fillRect(x, y + h - 10, w, 10);
+        
+        // 内部展品 (随机)
+        ctx.fillStyle = color; // 展品颜色
+        if (f.label.includes('钻石')) {
+             ctx.beginPath(); ctx.moveTo(x+w/2, y+h/2-5); ctx.lineTo(x+w/2+5, y+h/2); ctx.lineTo(x+w/2, y+h/2+5); ctx.lineTo(x+w/2-5, y+h/2); ctx.fill();
+        } else {
+             ctx.fillRect(x + w/2 - 4, y + h/2 + 5, 8, 8);
+        }
+        return;
+    }
+
+    // ... (通用回退逻辑)
+};
+    
 };
 
 

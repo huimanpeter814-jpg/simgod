@@ -176,6 +176,7 @@ export const ROOMS = [
     { id: 'arcade_zone', x: 1680, y: 1250, w: 300, h: 250, label: '赛博电玩城', color: '#5a6572', pixelPattern: 'arcade' },
     { id: 'night_club', x: 1680, y: 1520, w: 300, h: 260, label: '霓虹夜店', color: '#162056', pixelPattern: 'neon' },
     { id: 'netcafe_ground', x: 2450, y: 1250, w: 400, h: 530, label: '星际网咖', color: '#1e272e', pixelPattern: 'simple' },
+    { id: 'art_gallery_ground', x: 2450, y: 50, w: 400, h: 500, label: '美术馆', color: '#f7f1e3', pixelPattern: 'simple' },
 
 ];
 
@@ -836,7 +837,7 @@ export const FURNITURE: Furniture[] = [
         color: '#3742fa', 
         label: '网吧电脑',  // [关键] 包含"电脑"二字
         utility: 'work',    // [关键] 允许进行工作/赚外快交互
-        cost: 10,           // [关键] 上机费 $10
+        cost: 5,           // [关键] 上机费 $5
         pixelPattern: 'pc_pixel',
         pixelGlow: true,
         glowColor: '#3742fa'
@@ -871,5 +872,49 @@ export const FURNITURE: Furniture[] = [
     // 5. 补给站
     { id: 'vending_netcafe', x: 2460, y: 1300, w: 44, h: 34, color: '#ffa502', label: '能量饮料', utility: 'buy_drink', pixelPattern: 'vending' },
     { id: 'toilet_netcafe_m', x: 2800, y: 1300, w: 34, h: 34, color: '#5a8fff', label: '公厕', utility: 'bladder', pixelPattern: 'toilet' },
+
+    // -----------------------------------------------------
+    // 🎨 MOMA 美术馆 (Art Gallery)
+    // -----------------------------------------------------
+    { id: 'gallery_sign', x: 2500, y: 30, w: 300, h: 20, color: '#2f3542', label: 'MODERN ART', utility: 'none', pixelPattern: 'simple' },
+    
+    // 1. 接待大厅
+    { id: 'gallery_desk', x: 2550, y: 400, w: 80, h: 40, color: '#dfe4ea', label: '导览台', utility: 'work', pixelPattern: 'reception' },
+    
+    // 2. 雕塑展区 (中央)
+    { id: 'statue_venus', x: 2630, y: 200, w: 40, h: 60, color: '#ffffff', label: '维纳斯像', utility: 'art', pixelPattern: 'statue', pixelShadow: true },
+    { id: 'statue_thinker', x: 2530, y: 200, w: 40, h: 60, color: '#ffffff', label: '沉思者', utility: 'art', pixelPattern: 'statue', pixelShadow: true },
+
+    // 3. 墙面画廊 (四周)
+    ...createRow('painting_wall_top', 2460, 60, 5, 80, 0, { 
+        w: 50, h: 60, 
+        color: '#ff6b6b', 
+        label: '抽象画作', 
+        utility: 'art', 
+        pixelPattern: 'painting'
+    }),
+    
+    ...createGrid('painting_wall_left', 2460, 150, 1, 3, 0, 80, { 
+        w: 50, h: 60, 
+        color: '#54a0ff', 
+        label: '风景画', 
+        utility: 'art', 
+        pixelPattern: 'painting'
+    }),
+    
+    ...createGrid('painting_wall_right', 2780, 150, 1, 3, 0, 80, { 
+        w: 50, h: 60, 
+        color: '#feca57', 
+        label: '肖像画', 
+        utility: 'art', 
+        pixelPattern: 'painting'
+    }),
+
+    // 4. 珍宝展区 (展示柜)
+    { id: 'display_diamond', x: 2600, y: 300, w: 40, h: 40, color: '#00d2d3', label: '希望蓝钻', utility: 'art', pixelPattern: 'display_case', pixelGlow: true },
+    { id: 'display_gold', x: 2700, y: 300, w: 40, h: 40, color: '#ff9f43', label: '黄金面具', utility: 'art', pixelPattern: 'display_case', pixelGlow: true },
+
+    // 5. 休息长椅
+    { id: 'gallery_bench_1', x: 2600, y: 480, w: 100, h: 20, color: '#a4b0be', label: '观展长椅', utility: 'comfort', pixelPattern: 'bench_park' },
 
 ];

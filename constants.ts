@@ -45,7 +45,7 @@ const PALETTE = {
 };
 
 export const CONFIG = {
-    CANVAS_W: 2900,
+    CANVAS_W: 3000,
     CANVAS_H: 1800,
     // 人物外观配色优化
     COLORS: {

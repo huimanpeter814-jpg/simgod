@@ -114,8 +114,22 @@ export const DecisionLogic = {
         // 1. Coding/Writing (Need PC)
         if (sim.skills.logic > 5 || sim.skills.creativity > 5) {
             let pcs = FURNITURE.filter(f => f.label.includes('电脑') && (!f.reserved || f.reserved === sim.id));
-            if (pcs.length > 0) options.push({ type: 'pc', target: pcs[0] });
+            if (pcs.length > 0) {
+                // [优化] 优先去网吧 (如果是个性外向或者喜欢玩乐的市民)
+                const netCafePcs = pcs.filter(p => p.label.includes('网吧'));
+                const homePcs = pcs.filter(p => !p.label.includes('网吧'));
+                
+                // 简单随机逻辑：有钱且喜欢热闹的去网吧，没钱的找免费电脑
+                if (sim.money > 100 && netCafePcs.length > 0 && Math.random() > 0.4) {
+                     options.push({ type: 'pc', target: netCafePcs[Math.floor(Math.random() * netCafePcs.length)] });
+                } else if (homePcs.length > 0) {
+                     options.push({ type: 'pc', target: homePcs[Math.floor(Math.random() * homePcs.length)] });
+                } else if (pcs.length > 0) {
+                     options.push({ type: 'pc', target: pcs[Math.floor(Math.random() * pcs.length)] });
+                }
+            }
         }
+        
 
         // 2. Fishing (Need Lake)
         let lake = GameStore.furnitureIndex.get('fishing')?.[0]; // 使用索引
