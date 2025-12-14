@@ -1,8 +1,9 @@
 import { Sim } from '../Sim';
 import { GameStore } from '../simulation';
-import { FURNITURE } from '../../constants';
+import { CONFIG, FURNITURE } from '../../constants';
 import { minutes } from '../simulationHelpers';
 import { Furniture } from '../../types';
+
 
 export const DecisionLogic = {
     decideAction(sim: Sim) {
@@ -220,15 +221,25 @@ export const DecisionLogic = {
             });
 
             if (candidates.length) {
-                // [优化] 距离排序
+                // [优化 1] 放宽距离限制，增加随机性
+                // 不再严格按距离排序，而是先按距离排序，然后取前 50% 或前 10 个作为候选池
+                // 这样市民会愿意走远一点去更好玩的地方
                 candidates.sort((a: Furniture, b: Furniture) => {
                     const distA = Math.pow(a.x - sim.pos.x, 2) + Math.pow(a.y - sim.pos.y, 2);
                     const distB = Math.pow(b.x - sim.pos.x, 2) + Math.pow(b.y - sim.pos.y, 2);
                     return distA - distB;
                 });
 
-                // 取最近的几个随机，增加自然感
-                let obj = candidates[Math.floor(Math.random() * Math.min(candidates.length, 3))];
+                // 修改这里：从 min(length, 3) 改为更大的范围，例如 min(length, 8)
+                // 或者如果是为了娱乐(fun)，甚至可以全图随机
+                let poolSize = 3;
+                if (type === 'fun' || type === 'play' || type === 'art') {
+                    poolSize = 10; // 娱乐活动愿意跑远点
+                } else if (type === 'hunger') {
+                    poolSize = 5;  // 吃饭也可以多走两步
+                }
+                
+                let obj = candidates[Math.floor(Math.random() * Math.min(candidates.length, poolSize))];
                 
                 sim.target = { x: obj.x + obj.w / 2, y: obj.y + obj.h / 2 };
                 sim.interactionTarget = obj;
@@ -282,9 +293,20 @@ export const DecisionLogic = {
     },
 
     wander(sim: Sim) {
-        let minX = 20, maxX = 1380;
-        let minY = 50, maxY = 950;
+        // [优化 2] 修正坐标范围，覆盖全图
+        // 使用 CONFIG.CANVAS_W 和 H (需确保从 constants 导入了 CONFIG)
+        let minX = 50, maxX = CONFIG.CANVAS_W - 100; // 3000 - 100
+        let minY = 100, maxY = CONFIG.CANVAS_H - 100; // 1800 - 100
         
+        // 也可以增加一点逻辑：如果比较累(energy < 60)，就在附近逛；如果精力充沛，就全图跑
+        if (sim.needs.energy < 60) {
+            const range = 500;
+            minX = Math.max(50, sim.pos.x - range);
+            maxX = Math.min(CONFIG.CANVAS_W - 50, sim.pos.x + range);
+            minY = Math.max(50, sim.pos.y - range);
+            maxY = Math.min(CONFIG.CANVAS_H - 50, sim.pos.y + range);
+        }
+
         sim.target = { 
             x: minX + Math.random() * (maxX - minX), 
             y: minY + Math.random() * (maxY - minY) 
