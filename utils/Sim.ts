@@ -58,9 +58,7 @@ export class Sim {
         };
         this.prevPos = { ...this.pos }; 
         
-        // [修复 3] 提升移动速度，适应大地图，增加社交效率
-        // 原速: (4.0 + random * 1.5) * 1.5 ~= 6.75 ~ 9.0
-        // 新速: (6.0 + random * 2.0) * 2.5 ~= 15.0 ~ 20.0
+        // [修复 3] 提升移动速度
         this.speed = (6.0 + Math.random() * 2.0) * 2.5;
 
         this.gender = Math.random() > 0.5 ? 'M' : 'F';
@@ -402,6 +400,7 @@ export class Sim {
     }
 
     checkSchedule() {
+        // 1. 基础检查
         if (this.job.id === 'unemployed') return;
 
         const isHoliday = HOLIDAYS.some(h => h.month === GameStore.time.month && h.day === GameStore.time.date);
@@ -412,28 +411,37 @@ export class Sim {
         const currentHour = GameStore.time.hour;
         const isWorkTime = currentHour >= this.job.startHour && currentHour < this.job.endHour;
 
-        // [修复 2] 增加对 commuting 状态的检查，防止在通勤途中被重复指派位置导致“原地太空步”
+        // 2. 上班逻辑
         if (isWorkTime && this.action !== 'working' && this.action !== 'commuting') {
+            
+            // [🔥核心修复 1] 必须强制重置“赚外快”标记！
+            // 否则带着这个标记去坐班，交互逻辑会误判为“使用中(using)”而不是“工作中(working)”，导致死循环。
+            this.isSideHustle = false; 
+
             let searchLabels: string[] = [];
             let searchCategories: string[] = ['work', 'work_group']; 
 
+            // === 职业工位匹配 ===
             if (this.job.companyType === 'internet') {
                 searchLabels = this.job.level >= 4 ? ['老板椅'] : ['码农工位', '控制台'];
             } else if (this.job.companyType === 'design') {
                 searchLabels = ['画架'];
-                searchCategories.push('paint');
+                searchCategories.push('paint'); 
             } else if (this.job.companyType === 'business') {
                 searchLabels = this.job.level >= 4 ? ['老板椅'] : ['商务工位'];
             } else if (this.job.companyType === 'store') {
-                searchLabels = ['服务台', '影院服务台']; 
+                searchLabels = ['服务台', '影院服务台', '售票处']; 
             } else if (this.job.companyType === 'restaurant') {
-                if (this.job.title.includes('厨')) {
-                    searchLabels = ['后厨'];
+                if (this.job.title.includes('厨') || this.job.title === '打杂') {
+                    searchLabels = ['后厨', '灶台'];
                 } else {
                     searchLabels = ['餐厅前台'];
                 }
+            } else if (this.job.companyType === 'library') {
+                searchLabels = ['管理员'];
             }
 
+            // 查找家具
             let candidateFurniture: Furniture[] = [];
             searchCategories.forEach(cat => {
                 const list = GameStore.furnitureIndex.get(cat);
@@ -445,9 +453,6 @@ export class Sim {
                 (!f.reserved || f.reserved === this.id) &&
                 (f.multiUser || !GameStore.sims.some(s => s.id !== this.id && s.interactionTarget?.id === f.id))
             );
-            // checkSchedule 内添加：
-            console.log(`${this.name} searching:`, searchLabels, 'Found:', desk ? desk.label : 'NONE');
-            // 或 GameStore.addLog(this, `搜索工位: ${searchLabels.join(',')} → ${desk ? '找到' : '失败'}`, 'sys');
 
             if (desk) {
                 let targetX = desk.x + desk.w / 2;
@@ -458,28 +463,41 @@ export class Sim {
                 }
 
                 this.target = { x: targetX, y: targetY };
-                this.interactionTarget = desk;
                 
-                // [修复 1] 强制开始通勤，清除之前的行为计时器
+                // [核心修复 2] 强制覆写 utility 为 'work'
+                this.interactionTarget = { ...desk, utility: 'work' };
+                
                 this.action = 'commuting';
-                this.actionTimer = 0; // 关键：清除睡觉等长耗时动作的倒计时
+                this.actionTimer = 0;
                 this.say("去上班 💼", 'act');
             } else {
-                const randomSpot = { x: 50 + Math.random()*400, y: 50 + Math.random()*300 };
+                // [核心修复 3] 兜底逻辑
+                const randomSpot = { x: 100 + Math.random()*200, y: 100 + Math.random()*200 };
                 this.target = randomSpot;
                 this.action = 'commuting';
-                this.actionTimer = 0; // 关键：清除倒计时
-                this.say("没位置了...", 'bad');
+                this.actionTimer = 0;
+                
+                this.interactionTarget = {
+                    id: `virtual_work_${this.id}`,
+                    utility: 'work',
+                    label: '站立办公',
+                    type: 'virtual'
+                };
+                
+                this.say("没位置了...站着干", 'bad');
             }
-        } else if (!isWorkTime && (this.action === 'working' || this.action === 'commuting')) {
+        } 
+        // 3. 下班逻辑
+        else if (!isWorkTime && (this.action === 'working' || this.action === 'commuting')) {
             this.action = 'idle';
             this.target = null;
             this.interactionTarget = null;
             this.money += this.job.salary;
-            this.dailyIncome += this.job.salary; 
+            this.dailyIncome += this.job.salary;
             this.say(`下班! +$${this.job.salary}`, 'money');
             this.addBuff(BUFFS.stressed);
 
+            // 结算与升职
             let dailyPerf = 5; 
             if (this.job.companyType === 'internet' && this.skills.logic > 50) dailyPerf += 5;
             if (this.job.companyType === 'design' && this.skills.creativity > 50) dailyPerf += 5;
@@ -493,9 +511,7 @@ export class Sim {
                 this.promote();
                 this.workPerformance = 100;
             }
-            
         }
-        
     }
 
     promote() {

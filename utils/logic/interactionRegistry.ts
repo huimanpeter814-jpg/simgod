@@ -144,34 +144,39 @@ export const INTERACTIONS: Record<string, InteractionHandler> = {
             sim.needs.energy -= getRate(200); // 消耗体力
         }
     },
-    'work': {
-        verb: '工作 💻', duration: 480,
-        getDuration: (sim) => sim.isSideHustle ? 180 : 480,
-        getVerb: (sim) => sim.isSideHustle ? '接单赚外快 💻' : '工作 💻',
-        // [修复] 添加 onStart，明确将状态设置为 'working'，防止 checkSchedule 重复触发
-        onStart: (sim, obj) => {
-            // 如果是赚外快，我们可能不希望它被视为正式工作的 'working' 状态，
-            // 但为了防止逻辑冲突，这里统一处理，或者使用 'using' 也可以，
-            // 关键是正式工作必须是 'working'。
-            if (!sim.isSideHustle) {
-                sim.action = 'working';
-            } else {
-                sim.action = 'using'; // 外快保持 using 即可
-            }
-            return true;
-        },
-        onFinish: (sim, obj) => {
-            if (sim.isSideHustle && obj.label.includes('电脑')) {
-                const skillUsed = sim.skills.coding > sim.skills.creativity ? 'coding' : 'writing';
-                let skillVal = sim.skills.logic; 
-                if (skillUsed === 'writing') skillVal = sim.skills.creativity;
-                const earned = 50 + skillVal * 5; 
-                sim.skills.logic += 0.5;
-                sim.skills.creativity += 0.5;
-                sim.earnMoney(earned, 'side_hustle_pc');
-            }
+
+   'work': {
+    verb: '工作 💻', 
+    duration: 480, // 基础时长，会被 getDuration 覆盖
+    getDuration: (sim) => sim.isSideHustle ? 180 : 480,
+    getVerb: (sim) => sim.isSideHustle ? '接单赚外快 💻' : '工作 💻',
+    
+    // [关键修复] 必须显式设置 action 为 'working'，否则 checkSchedule 会认为没在上班
+    onStart: (sim, obj) => {
+        if (sim.isSideHustle) {
+            sim.action = 'using'; // 赚外快算作普通使用
+        } else {
+            sim.action = 'working'; // 正式工作必须是 working 状态！
         }
+        return true;
     },
+
+    onFinish: (sim, obj) => {
+        // 赚外快结算逻辑
+        if (sim.isSideHustle && obj.label.includes('电脑')) {
+            const skillUsed = sim.skills.coding > sim.skills.creativity ? 'coding' : 'writing';
+            let skillVal = sim.skills.logic; 
+            if (skillUsed === 'writing') skillVal = sim.skills.creativity;
+            const earned = 50 + skillVal * 5; 
+            sim.skills.logic += 0.5;
+            sim.skills.creativity += 0.5;
+            sim.earnMoney(earned, 'side_hustle_pc');
+        }
+        // 正式工作的结算在 checkSchedule 的 else 分支处理，这里不需要写
+    }
+},
+
+
     'cinema_': { // 前缀匹配
         verb: '看电影 🎬', duration: 120,
         onStart: (sim) => { sim.addBuff(BUFFS.movie_fun); return true; },
