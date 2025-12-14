@@ -65,7 +65,7 @@ export const INTERACTIONS: Record<string, InteractionHandler> = {
             sim.needs.fun += 20;
         }
     },
-    'gym_run': {
+    'run': {
         verb: '健身', duration: 60,
         onUpdate: (sim, obj, f, getRate) => {
             sim.skills.athletics += 0.08 * f;
@@ -73,12 +73,20 @@ export const INTERACTIONS: Record<string, InteractionHandler> = {
             sim.needs.hygiene -= getRate(240);
         }
     },
-    'gym_yoga': {
+    'stretch': {
         verb: '瑜伽', duration: 60,
         onUpdate: (sim, obj, f, getRate) => {
             sim.skills.athletics += 0.05 * f;
             sim.needs.energy -= getRate(120);
             sim.needs.hygiene -= getRate(240);
+        }
+    },
+    'lift': {
+        verb: '举铁 💪', duration: 45,
+        onUpdate: (sim, obj, f, getRate) => {
+            sim.skills.athletics += 0.1 * f; // 力量训练技能涨得快
+            sim.needs.energy -= getRate(300); // 但更累
+            sim.needs.hygiene -= getRate(300);
         }
     },
     'gardening': {
@@ -146,21 +154,21 @@ export const INTERACTIONS: Record<string, InteractionHandler> = {
     },
 
    'work': {
-    verb: '工作 💻', 
-    duration: 480, 
-    getDuration: (sim) => sim.isSideHustle ? 180 : 480,
-    getVerb: (sim) => sim.isSideHustle ? '接单赚外快 💻' : '工作 💻',
-    
-    // [关键修复] 必须显式设置 action 为 'working'
-    // 如果这里不设置，Sim 默认会变成 'using'，
-    // checkSchedule 就会认为还没开始工作，从而再次强制该市民去上班。
-    onStart: (sim, obj) => {
-        if (sim.isSideHustle) {
-            sim.action = 'using'; 
-        } else {
-            sim.action = 'working'; // <--- 确保这一行存在
-        }
-        return true;
+        verb: '工作 💻', 
+        duration: 480, 
+        getDuration: (sim) => sim.isSideHustle ? 180 : 480,
+        getVerb: (sim) => sim.isSideHustle ? '接单赚外快 💻' : '工作 💻',
+        
+        // [关键修复] 必须显式设置 action 为 'working'
+        // 如果这里不设置，Sim 默认会变成 'using'，
+        // checkSchedule 就会认为还没开始工作，从而再次强制该市民去上班。
+        onStart: (sim, obj) => {
+            if (sim.isSideHustle) {
+                sim.action = 'using'; 
+            } else {
+                sim.action = 'working'; // <--- 确保这一行存在
+            }
+            return true;
     },
 
     onFinish: (sim, obj) => {
@@ -225,6 +233,22 @@ export const INTERACTIONS: Record<string, InteractionHandler> = {
         onStart: (sim) => { sim.action = 'eating'; return true; },
         onUpdate: genericRestore('hunger')
     },
+    'comfort': {
+        verb: '休息', 
+        duration: 60,
+        getVerb: () => '小憩 💤',
+        onStart: (sim) => { 
+            sim.action = 'using'; // 保持 using 状态（坐着），而不是 sleeping（躺着）
+            return true; 
+        },
+        onUpdate: (sim, obj, f, getRate) => {
+            // 关键：使用 energy_nap (60分钟) 的速率来恢复 energy
+            sim.needs.energy += getRate(RESTORE_TIMES.energy_nap);
+            // 顺便拉满舒适度
+            if (sim.needs.comfort !== undefined) sim.needs.comfort = 100;
+            sim.needs.fun += getRate(60);
+        }
+    },
     'eat_out': {
         verb: '享用美食 🍝', duration: 60,
         onStart: (sim, obj) => {
@@ -239,6 +263,21 @@ export const INTERACTIONS: Record<string, InteractionHandler> = {
         },
         onFinish: (sim) => {
             sim.addBuff(BUFFS.good_meal);
+        }
+    },
+    'buy_food': {
+        verb: '享用美食 🌭', 
+        duration: 15,
+        onStart: (sim, obj) => {
+            const cost = 20; // 定义一个默认食物价格
+            if (sim.money >= cost) { 
+                sim.money -= cost; 
+                sim.needs.hunger += 40; // 恢复饥饿
+                sim.needs.fun += 10;    // 稍微增加快乐
+                return true; 
+            }
+            sim.say("买不起吃的...", 'bad'); 
+            return false;
         }
     },
     'default': {

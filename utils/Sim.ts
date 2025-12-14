@@ -370,6 +370,7 @@ export class Sim {
         this.addBuff(BUFFS.side_hustle_win);
     }
 
+
     leaveWorkEarly() {
         const currentHour = GameStore.time.hour + GameStore.time.minute / 60;
         let startHour = this.currentShiftStart || this.job.startHour;
@@ -384,7 +385,9 @@ export class Sim {
         this.money += actualPay;
         this.dailyIncome += actualPay;
 
+        // [修复] 重置状态时必须清空计时器，否则会卡在原地直到原定下班时间
         this.action = 'idle';
+        this.actionTimer = 0; // <--- 添加这一行
         this.target = null;
         this.interactionTarget = null;
         this.hasLeftWorkToday = true;

@@ -175,6 +175,8 @@ export const ROOMS = [
     { id: 'gym_complex', x: 2000, y: 1250, w: 380, h: 530, label: '健身房', color: '#a8b4c8', pixelPattern: 'gym' },
     { id: 'arcade_zone', x: 1680, y: 1250, w: 300, h: 250, label: '赛博电玩城', color: '#5a6572', pixelPattern: 'arcade' },
     { id: 'night_club', x: 1680, y: 1520, w: 300, h: 260, label: '霓虹夜店', color: '#162056', pixelPattern: 'neon' },
+    { id: 'netcafe_ground', x: 2450, y: 1250, w: 400, h: 530, label: '星际网咖', color: '#1e272e', pixelPattern: 'simple' },
+
 ];
 
 // ==========================================
@@ -816,4 +818,58 @@ export const FURNITURE: Furniture[] = [
     { id: 'speaker_l', x: 1780, y: 1520, w: 44, h: 64, color: '#1a1e2c', label: '低音炮', utility: 'none', pixelPattern: 'speaker' },
     { id: 'speaker_r', x: 1930, y: 1520, w: 44, h: 64, color: '#1a1e2c', label: '低音炮', utility: 'none', pixelPattern: 'speaker' },
     { id: 'vip_sofa', x: 1835, y: 1720, w: 84, h: 44, color: '#ff5252', label: '卡座', utility: 'comfort', pixelPattern: 'sofa_vip' },
+
+    // -----------------------------------------------------
+    // 🎮 星际网咖 (Internet Cafe) - 新增区域
+    // -----------------------------------------------------
+    // 1. 建筑外观与装饰
+    { id: 'netcafe_sign', x: 2500, y: 1230, w: 300, h: 20, color: '#00d2d3', label: 'INTERNET CAFE', utility: 'none', pixelPattern: 'neon' },
+    { id: 'netcafe_carpet', x: 2470, y: 1350, w: 360, h: 400, color: '#2f3542', label: '吸音地毯', utility: 'none', pixelPattern: 'rug_fancy' },
+    
+    // 2. 网管前台
+    { id: 'netcafe_counter', x: 2550, y: 1280, w: 120, h: 44, color: '#57606f', label: '网管前台', utility: 'work', multiUser: true, pixelPattern: 'reception' },
+    { id: 'netcafe_server', x: 2680, y: 1270, w: 44, h: 54, color: '#2ed573', label: '服务器', utility: 'none', pixelPattern: 'server', pixelGlow: true },
+    
+    // 3. 大厅普通区 (高性能电脑 - 这里的 label 包含 "电脑"，可以被 side hustle 逻辑找到)
+    ...createGrid('netcafe_pc_std', 2480, 1400, 4, 4, 60, 80, { 
+        w: 44, h: 34, 
+        color: '#3742fa', 
+        label: '网吧电脑',  // [关键] 包含"电脑"二字
+        utility: 'work',    // [关键] 允许进行工作/赚外快交互
+        cost: 10,           // [关键] 上机费 $10
+        pixelPattern: 'pc_pixel',
+        pixelGlow: true,
+        glowColor: '#3742fa'
+    }),
+    ...createGrid('netcafe_chair_std', 2490, 1435, 4, 4, 60, 80, { 
+        w: 24, h: 24, 
+        color: '#747d8c', 
+        label: '电竞椅', 
+        utility: 'none',
+        pixelPattern: 'chair_pixel'
+    }),
+
+    // 4. VIP 包厢区 (更贵的配置)
+    ...createGrid('netcafe_pc_vip', 2740, 1400, 1, 4, 70, 90, { 
+        w: 54, h: 34, 
+        color: '#ff4757', 
+        label: '顶配电脑', // [关键] 包含"电脑"
+        utility: 'work', 
+        cost: 25,         // VIP 上机费 $25
+        pixelPattern: 'pc_pixel',
+        pixelGlow: true,
+        glowColor: '#ff4757'
+    }),
+    ...createGrid('netcafe_sofa_vip', 2745, 1435, 1, 4, 70, 90, { 
+        w: 44, h: 34, 
+        color: '#2f3542', 
+        label: '真皮沙发', 
+        utility: 'comfort', // 累了可以直接睡
+        pixelPattern: 'sofa_pixel'
+    }),
+
+    // 5. 补给站
+    { id: 'vending_netcafe', x: 2460, y: 1300, w: 44, h: 34, color: '#ffa502', label: '能量饮料', utility: 'buy_drink', pixelPattern: 'vending' },
+    { id: 'toilet_netcafe_m', x: 2800, y: 1300, w: 34, h: 34, color: '#5a8fff', label: '公厕', utility: 'bladder', pixelPattern: 'toilet' },
+
 ];
