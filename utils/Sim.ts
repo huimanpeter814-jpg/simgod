@@ -1,5 +1,5 @@
 ﻿import { CONFIG, BASE_DECAY, LIFE_GOALS, MBTI_TYPES, SURNAMES, GIVEN_NAMES, ZODIACS, JOBS, ITEMS, BUFFS, ASSET_CONFIG, HOLIDAYS } from '../constants';
-import { Vector2, Job, Buff, SimAppearance, Furniture } from '../types';
+import { Vector2, Job, Buff, SimAppearance, Furniture, Memory } from '../types';
 import { GameStore } from './simulation';
 import { minutes, getJobCapacity } from './simulationHelpers';
 import { SocialLogic } from './logic/social';
@@ -40,11 +40,14 @@ export class Sim {
     dailyExpense: number;
     dailyIncome: number; 
     isSideHustle: boolean = false;
-    currentShiftStart: number = 0; // [新] 记录当前班次开始时间
+    currentShiftStart: number = 0; 
 
     metabolism: any;
     skillModifiers: Record<string, number>;
     socialModifier: number;
+
+    // [新增] 记忆列表
+    memories: Memory[] = [];
 
     action: string;
     actionTimer: number;
@@ -136,6 +139,30 @@ export class Sim {
 
         this.calculateDailyBudget();
         GameStore.addLog(this, `搬进了社区。职位: ${this.job.title}`, 'sys');
+        
+        // [记录] 初始记忆
+        this.addMemory(`搬进了社区，开始了新生活。`, 'life');
+        if (this.job.id !== 'unemployed') {
+            this.addMemory(`找到了一份新工作：${this.job.title}`, 'job');
+        }
+    }
+
+    // [新增] 添加记忆的方法
+    addMemory(text: string, type: Memory['type'], relatedSimId?: string) {
+        const timeStr = `Day ${GameStore.time.day} ${String(GameStore.time.hour).padStart(2, '0')}:${String(GameStore.time.minute).padStart(2, '0')}`;
+        const newMemory: Memory = {
+            id: Math.random().toString(36).substring(2, 9),
+            time: timeStr,
+            type: type,
+            text: text,
+            relatedSimId: relatedSimId
+        };
+        // 放在最前面，最新的记忆在上面
+        this.memories.unshift(newMemory);
+        // 限制记忆数量，防止无限增长
+        if (this.memories.length > 50) {
+            this.memories.pop();
+        }
     }
 
     generateName() { return SURNAMES[Math.floor(Math.random() * SURNAMES.length)] + GIVEN_NAMES[Math.floor(Math.random() * GIVEN_NAMES.length)]; }
@@ -243,6 +270,9 @@ export class Sim {
         
         if (Math.random() * 100 < quitScore && quitScore > 50) {
             GameStore.addLog(this, `决定辞职... "这工作不适合我"`, 'sys');
+            // [记录] 辞职记忆
+            this.addMemory(`辞去了 ${this.job.title} 的工作，想要休息一段时间。`, 'job');
+            
             this.job = JOBS.find(j => j.id === 'unemployed')!;
             this.workPerformance = 0;
             this.say("我不干了! 💢", 'bad');
@@ -284,6 +314,8 @@ export class Sim {
                     SocialLogic.updateRelationship(lover, this, 'romance', 10);
                     lover.needs.fun = Math.min(100, lover.needs.fun + 20);
                     logSuffix = ` (送给 ${lover.name})`;
+                    // [记录] 送礼记忆
+                    this.addMemory(`给 ${lover.name} 买了 ${item.label}，希望Ta喜欢。`, 'social', lover.id);
                 }
             }
         }
@@ -301,20 +333,16 @@ export class Sim {
         this.addBuff(BUFFS.side_hustle_win);
     }
 
-    // [新] 早退逻辑
     leaveWorkEarly() {
         const currentHour = GameStore.time.hour + GameStore.time.minute / 60;
         let startHour = this.currentShiftStart || this.job.startHour;
         const totalDuration = this.job.endHour - this.job.startHour;
 
-        // 防止跨午夜导致负数（虽然当前 job 配置暂无跨午夜，但为了健壮性）
         let workedDuration = currentHour - startHour;
         if (workedDuration < 0) workedDuration += 24;
 
-        // 计算实际工作比例
         const workRatio = Math.max(0, Math.min(1, workedDuration / totalDuration));
         
-        // 按比例发工资
         const actualPay = Math.floor(this.job.salary * workRatio);
         this.money += actualPay;
         this.dailyIncome += actualPay;
@@ -324,7 +352,6 @@ export class Sim {
         this.interactionTarget = null;
         
         this.addBuff(BUFFS.stressed);
-        // 增加负面状态
         this.needs.fun = Math.max(0, this.needs.fun - 20);
         
         GameStore.addLog(this, `因精力耗尽早退。实发工资: $${actualPay} (占比 ${(workRatio*100).toFixed(0)}%)`, 'money');
@@ -339,12 +366,10 @@ export class Sim {
             this.updateBuffs(1);
         }
 
-        // 1. 优先检查日程
         this.checkSchedule();
         this.updateMood();
 
-        // [新] 负面需求 Debuff 检查
-        if (minuteChanged) { // 每分钟检查一次即可
+        if (minuteChanged) { 
             if (this.needs.social < 20 && !this.hasBuff('lonely')) {
                 this.addBuff(BUFFS.lonely);
                 this.say("好孤独...", 'bad');
@@ -359,7 +384,6 @@ export class Sim {
             }
         }
 
-        // 2. 状态消耗
         if (this.action !== 'sleeping') this.needs.energy -= BASE_DECAY.energy * this.metabolism.energy * f;
         if (this.action !== 'eating') this.needs.hunger -= BASE_DECAY.hunger * this.metabolism.hunger * f;
         if (this.action !== 'watching_movie') this.needs.fun -= BASE_DECAY.fun * this.metabolism.fun * f;
@@ -369,9 +393,7 @@ export class Sim {
 
         const getRate = (mins: number) => (100 / (mins * 60)) * dt;
 
-        // [新] 工作期间的状态自动维护与早退判定
         if (this.action === 'working' && !this.isSideHustle) {
-            // 2.1 自动补充
             if (this.needs.hunger < 20) {
                 this.needs.hunger = 80;
                 this.say("摸鱼吃零食 🍫", 'act');
@@ -381,20 +403,16 @@ export class Sim {
                 this.say("带薪如厕 🚽", 'act');
             }
 
-            // 2.2 精力不足早退判定
             if (this.needs.energy < 15) {
                 this.leaveWorkEarly();
             }
         }
 
-        // 3. 动作恢复逻辑
         if (this.action === 'talking') {
             this.needs.social += getRate(RESTORE_TIMES.social);
         }
         else if (this.action === 'commuting') {
-            // 通勤中，增加计时器，防止卡死
             this.commuteTimer += dt;
-            // 如果通勤超过 1200 ticks (约20游戏分钟/秒)，强制瞬移
             if (this.commuteTimer > 1200 && this.target) {
                 this.pos = { ...this.target };
                 this.startInteraction();
@@ -403,7 +421,6 @@ export class Sim {
         else if (this.interactionTarget) {
             const obj = this.interactionTarget;
             
-            // [修复] 增加对 'human' 类型目标的保护检查
             if (obj.type === 'human' || !obj.utility) {
             } 
             else if (obj.utility === 'work') {
@@ -422,10 +439,8 @@ export class Sim {
             }
         }
 
-        // 4. 需求限制
         for (let k in this.needs) this.needs[k] = Math.max(0, Math.min(100, this.needs[k]));
 
-        // 5. 动作完成检查
         if (this.actionTimer > 0) {
             this.actionTimer -= dt;
             if (this.actionTimer <= 0) this.finishAction();
@@ -437,7 +452,6 @@ export class Sim {
                                currentHour >= this.job.startHour && currentHour < this.job.endHour;
 
             if (isWorkTime) {
-                // 如果是工作时间，且现在没在通勤也没在工作，交给 checkSchedule
             } else {
                 if (this.action !== 'commuting' && this.action !== 'working') {
                     if (this.action === 'moving') this.action = 'idle';
@@ -446,7 +460,6 @@ export class Sim {
             }
         }
 
-        // 6. 移动逻辑
         if (this.target) {
             const dx = this.target.x - this.pos.x;
             const dy = this.target.y - this.pos.y;
@@ -493,13 +506,11 @@ export class Sim {
         const currentHour = GameStore.time.hour;
         const isWorkTime = currentHour >= this.job.startHour && currentHour < this.job.endHour;
 
-        // === 上班逻辑 ===
         if (isWorkTime) {
             if (this.action === 'working') return;
             if (this.action === 'commuting' && this.interactionTarget?.utility === 'work') return;
             
             this.isSideHustle = false; 
-            // [新] 记录上班开始时间，用于早退计算工资
             this.currentShiftStart = GameStore.time.hour + GameStore.time.minute / 60;
 
             let searchLabels: string[] = [];
@@ -564,7 +575,6 @@ export class Sim {
                 this.say("站着上班 💼", 'bad');
             }
         } 
-        // === 下班逻辑 (正常下班) ===
         else if (!isWorkTime && (this.action === 'working' || this.action === 'commuting')) {
              if (this.action === 'commuting' && this.interactionTarget?.utility !== 'work') return;
 
@@ -572,7 +582,6 @@ export class Sim {
             this.target = null;
             this.interactionTarget = null;
             
-            // 正常下班，全额发薪
             this.money += this.job.salary;
             this.dailyIncome += this.job.salary;
             this.say(`下班! +$${this.job.salary}`, 'money');
@@ -601,6 +610,8 @@ export class Sim {
             GameStore.addLog(this, `升职了！现在是 ${nextLevel.title} (Lv.${nextLevel.level})`, 'sys');
             this.say("升职啦! 🚀", 'act');
             this.addBuff(BUFFS.promoted);
+            // [记录] 升职记忆
+            this.addMemory(`因为表现优异，升职为 ${nextLevel.title}！`, 'job');
         } else {
             const victim = currentHolders.sort((a, b) => a.workPerformance - b.workPerformance)[0];
             if (this.workPerformance + this.mood > victim.workPerformance + victim.mood) {
@@ -615,6 +626,9 @@ export class Sim {
                 GameStore.addLog(this, `PK 成功！取代了 ${victim.name} 成为 ${nextLevel.title}`, 'sys');
                 this.say("我赢了! 👑", 'act');
                 victim.say("可恶... 😭", 'bad');
+                // [记录] 竞争升职记忆
+                this.addMemory(`在职场竞争中击败了 ${victim.name}，成功晋升为 ${nextLevel.title}。`, 'job', victim.id);
+                victim.addMemory(`在职场竞争中输给了 ${this.name}，被降职了...`, 'bad', this.id);
             } else {
                 GameStore.addLog(this, `尝试晋升 ${nextLevel.title} 但 PK 失败了。`, 'sys');
                 this.workPerformance -= 100; 

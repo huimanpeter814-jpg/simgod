@@ -2,12 +2,14 @@ import React, { useState, useEffect } from 'react';
 import Roster from './Roster';
 import LogPanel from './LogPanel';
 import Inspector from './Inspector';
+import StatisticsPanel from './StatisticsPanel';
 import { GameStore, Sim } from '../../utils/simulation';
 
 // Full Screen Overlay managing HUD elements
 const GameOverlay: React.FC = () => {
     const [sims, setSims] = useState<Sim[]>([]);
     const [selectedId, setSelectedId] = useState<string | null>(null);
+    const [showStats, setShowStats] = useState(false);
 
     useEffect(() => {
         // Initial fetch
@@ -44,8 +46,29 @@ const GameOverlay: React.FC = () => {
             {/* Floating Log Panel (Self-managed positioning) */}
             <LogPanel />
 
-            {/* Bottom Right: Spawn Button - Made much more visible */}
-            <div className="absolute right-8 bottom-8 pointer-events-auto">
+            {/* Statistics Modal */}
+            {showStats && <StatisticsPanel onClose={() => setShowStats(false)} />}
+
+            {/* Bottom Right: Controls */}
+            <div className="absolute right-8 bottom-8 pointer-events-auto flex gap-4 items-end">
+                
+                {/* Statistics Button */}
+                <button
+                    onClick={() => setShowStats(true)}
+                    className="
+                        group flex items-center justify-center
+                        bg-[#0984e3] hover:bg-[#74b9ff] text-white
+                        w-14 h-14 rounded-full
+                        shadow-[0_0_20px_rgba(9,132,227,0.6)] hover:shadow-[0_0_30px_rgba(116,185,255,0.8)]
+                        border-2 border-white/20 hover:border-white
+                        transition-all duration-300 transform hover:scale-105 active:scale-95
+                    "
+                    title="View Statistics"
+                >
+                    <span className="text-2xl">📊</span>
+                </button>
+
+                {/* Spawn Button */}
                 <button
                     onClick={handleSpawn}
                     className="

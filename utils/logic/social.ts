@@ -90,8 +90,25 @@ export const SocialLogic = {
 
     checkRelChange(sim: Sim, partner: Sim, oldLabel: string) {
         let newLabel = SocialLogic.getRelLabel(sim.relationships[partner.id] || {});
-        if (oldLabel !== newLabel && (newLabel === '恋人' || newLabel === '爱慕' || newLabel === '死对头')) {
-            GameStore.addLog(sim, `与 ${partner.name} 的关系变成了 ${newLabel}`, 'rel_event');
+        // [修改] 增加友谊相关的记忆触发
+        const newFriendship = sim.relationships[partner.id]?.friendship || 0;
+        
+        if (oldLabel !== newLabel) {
+            if (newLabel === '恋人' || newLabel === '爱慕') {
+                GameStore.addLog(sim, `与 ${partner.name} 的关系变成了 ${newLabel}`, 'rel_event');
+            }
+            // 成为死对头
+            if (newLabel === '厌恶' && oldLabel !== '厌恶') {
+                sim.addMemory(`受不了 ${partner.name} 了，简直是死对头！`, 'social', partner.id);
+                GameStore.addLog(sim, `视 ${partner.name} 为死对头！`, 'bad');
+            }
+        }
+
+        // 成为好朋友判定 (假设友谊度 60 为界)
+        const oldFriendship = partner.relationships[sim.id]?.friendship || 0; // 近似判断，这里简化处理
+        // 实际上应该存之前的 friendship 数值，但这里简单起见，利用 hasBuff 或者记忆去重
+        if (newFriendship > 60 && !sim.memories.some(m => m.type === 'social' && m.relatedSimId === partner.id && m.text.includes('好朋友'))) {
+             sim.addMemory(`和 ${partner.name} 成为了好朋友。`, 'social', partner.id);
         }
     },
 
@@ -130,6 +147,8 @@ export const SocialLogic = {
             SocialLogic.checkRelChange(sim, target, oldLabelT);
 
             GameStore.addLog(sim, `目睹 ${actor.name} 和 ${target.name} 亲热，吃醋了！`, 'jealous');
+            // [记录] 吃醋记忆
+            sim.addMemory(`看见 ${actor.name} 和 ${target.name} 在一起，心里酸酸的。`, 'bad', actor.id);
         }
     },
 
@@ -200,10 +219,15 @@ export const SocialLogic = {
                     GameStore.spawnHeart(sim.pos.x, sim.pos.y);
                     sim.addBuff(BUFFS.in_love);
                     partner.addBuff(BUFFS.in_love);
+                    // [记录] 表白成功记忆
+                    sim.addMemory(`向 ${partner.name} 表白成功，我们在一起了！❤️`, 'life', partner.id);
+                    partner.addMemory(`接受了 ${sim.name} 的表白，我们在一起了！❤️`, 'life', sim.id);
                 } else {
                     success = false;
                     GameStore.addLog(sim, `向 ${partner.name} 表白被拒绝了...`, 'rel_event');
                     SocialLogic.updateRelationship(sim, partner, 'romance', -10);
+                    // [记录] 表白失败记忆
+                    sim.addMemory(`向 ${partner.name} 表白被拒绝，好难过...`, 'bad', partner.id);
                 }
             } else if (finalType.special === 'breakup') {
                 rel.isLover = false;
@@ -211,6 +235,23 @@ export const SocialLogic = {
                 GameStore.addLog(sim, `和 ${partner.name} 分手了... 💔`, 'rel_event');
                 sim.addBuff(BUFFS.heartbroken);
                 partner.addBuff(BUFFS.heartbroken);
+                // [记录] 分手记忆
+                sim.addMemory(`和 ${partner.name} 分手了，往事随风。`, 'bad', partner.id);
+                partner.addMemory(`被 ${sim.name} 甩了... 💔`, 'bad', sim.id);
+            } else if (finalType.special === 'propose') {
+                // [新增] 求婚逻辑 (假设成功率很高，只要 romance 够高)
+                 if (partner.relationships[sim.id].romance > 90) {
+                     GameStore.addLog(sim, `向 ${partner.name} 求婚成功！💍`, 'rel_event');
+                     sim.addMemory(`向 ${partner.name} 求婚成功！我们将共度余生。`, 'life', partner.id);
+                     partner.addMemory(`答应了 ${sim.name} 的求婚！💍`, 'life', sim.id);
+                     sim.say("嫁给我吧！", 'love');
+                     partner.say("我愿意！", 'love');
+                 } else {
+                     sim.say("我们结婚吧...", 'love');
+                     partner.say("还没准备好...", 'normal');
+                     GameStore.addLog(sim, `向 ${partner.name} 求婚被委婉拒绝了。`, 'rel_event');
+                     sim.addMemory(`向 ${partner.name} 求婚被拒，可能太着急了。`, 'bad', partner.id);
+                 }
             } else {
                 let val = finalType.val;
                 val += comp * 1.5;
@@ -258,7 +299,7 @@ export const SocialLogic = {
 
                 let sign = val > 0 ? '+' : '';
                 let labelStr = finalType.type === 'romance' ? '浪漫' : '友谊';
-                if (finalType.special !== 'confess' && finalType.special !== 'breakup') {
+                if (finalType.special !== 'confess' && finalType.special !== 'breakup' && finalType.special !== 'propose') {
                     GameStore.addLog(sim, `与 ${partner.name} ${finalType.label} (${labelStr} ${sign}${Math.floor(val)})`, finalType.logType);
                 }
             }

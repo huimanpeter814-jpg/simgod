@@ -145,11 +145,10 @@ export const ROOMS = [
     
     { id: 'office_tower_b', x: 620, y: 40, w: 450, h: 320, label: '环球金融中心', color: '#ffffff', pixelPattern: 'checker' },
     { id: 'design_studio', x: 1100, y: 40, w: 380, h: 280, label: '像素艺术工作室', color: PALETTE.build_brick_white, pixelPattern: 'brush' },
-    
-    { id: 'talent_ground_n', x: 1480, y: 20, w: 750, h: 360, label: '', color: '#f0f2f8', pixelPattern: 'simple' },
+    // [扩建] 扩大北部区域宽度以容纳新澡堂
+    { id: 'talent_ground_n', x: 1480, y: 20, w: 900, h: 360, label: '', color: '#f0f2f8', pixelPattern: 'simple' },
     { id: 'talent_apt_n1', x: 1500, y: 40, w: 350, h: 320, label: '人才公寓 N1', color: PALETTE.build_brick_white, pixelPattern: 'brick' },
     { id: 'talent_apt_n2', x: 1870, y: 40, w: 350, h: 320, label: '人才公寓 N2', color: PALETTE.build_brick_white, pixelPattern: 'brick' },
-
     // === 🌳 中部：中央公园 ===
     { id: 'park_base', x: 600, y: 480, w: 1000, h: 670, label: '', color: PALETTE.ground_grass_dark, pixelPattern: 'grass' },
     { id: 'park_lawn_main', x: 650, y: 530, w: 900, h: 570, label: '中央公园绿地', color: PALETTE.ground_grass_light, pixelPattern: 'grass_dense' },
@@ -428,6 +427,22 @@ export const FURNITURE: Furniture[] = [
         utility: 'work',
         pixelPattern: 'desk_simple'
     }),
+
+    { id: 'ne_bath_wall', x: 2240, y: 40, w: 100, h: 340, color: '#dce4f0', label: '公共大澡堂', utility: 'none', pixelPattern: 'simple' },
+    ...createRow('ne_toilet', 2250, 50, 6, 0, 50, { 
+        w: 34, h: 34, 
+        color: '#5a8fff', 
+        label: '公厕', 
+        utility: 'bladder',
+        pixelPattern: 'toilet'
+    }),
+    ...createRow('ne_shower', 2300, 50, 6, 0, 50, { 
+        w: 34, h: 44, 
+        color: '#81ecec', 
+        label: '淋浴', 
+        utility: 'hygiene',
+        pixelPattern: 'shower_stall'
+    }),
     
     
     // -----------------------------------------------------
@@ -489,7 +504,15 @@ export const FURNITURE: Furniture[] = [
     { id: 'food_cart_umbrella', x: 1100, y: 980, w: 44, h: 44, color: '#ff9c8a', label: '遮阳伞', utility: 'none', pixelPattern: 'umbrella' },
     { id: 'icecream_cart', x: 1150, y: 980, w: 64, h: 44, color: '#ffd166', label: '冰淇淋车', utility: 'buy_food', pixelPattern: 'icecream_cart' },
     
-    ...createGrid('forest_dense', 1350, 970, 5, 3, 40, 40, { 
+    { id: 'park_restroom_struct', x: 1350, y: 1020, w: 180, h: 60, color: '#b2bec3', label: '公园公厕', utility: 'none', pixelPattern: 'simple' },
+    ...createRow('park_toilet', 1365, 1030, 4, 40, 0, { 
+        w: 30, h: 30, 
+        color: '#5a8fff', 
+        label: '公厕', 
+        utility: 'bladder',
+        pixelPattern: 'toilet'
+    }),
+    ...createGrid('forest_dense', 1380, 850, 4, 3, 40, 40, { 
         w: 34, h: 34, 
         color: '#00b894', 
         label: '灌木丛', 
@@ -523,7 +546,7 @@ export const FURNITURE: Furniture[] = [
         utility: 'bladder',
         pixelPattern: 'toilet'
     }),
-    ...createRow('dorm_shower', 350, 600, 3, 0, 50, {
+    ...createRow('dorm_shower', 350, 550, 4, 0, 50, {
         w: 34, h: 44,
         color: '#81ecec',
         label: '公共淋浴',
@@ -633,6 +656,13 @@ export const FURNITURE: Furniture[] = [
         utility: 'buy_item',
         pixelPattern: 'shelf_meat'
     }),
+    ...createRow('park_toilet', 1100, 1730, 2, 40, 0, { 
+        w: 30, h: 30, 
+        color: '#5a8fff', 
+        label: '公厕', 
+        utility: 'bladder',
+        pixelPattern: 'toilet'
+    }),
 
     // Cinema - 像素影院风
     // [优化] 影院服务台允许多人工作
@@ -655,6 +685,13 @@ export const FURNITURE: Furniture[] = [
         label: '普通座', 
         utility: 'cinema_3d',
         pixelPattern: 'seat_reg'
+    }),
+    ...createRow('park_toilet', 1280, 1730, 4, 40, 0, { 
+        w: 30, h: 30, 
+        color: '#5a8fff', 
+        label: '公厕', 
+        utility: 'bladder',
+        pixelPattern: 'toilet'
     }),
 
     // -----------------------------------------------------
@@ -737,7 +774,7 @@ export const FURNITURE: Furniture[] = [
     }),
     { id: 'water_station_gym', x: 2300, y: 1400, w: 34, h: 34, color: '#5a8fff', label: '直饮水', utility: 'drink', pixelPattern: 'water_station' },
     
-    ...createRow('gym_shower', 2300, 1550, 4, 0, 50, { 
+    ...createGrid('gym_shower', 2280, 1500, 2, 4, 50,70, { 
         w: 34, h: 44, 
         color: '#81ecec', 
         label: '淋浴间', 

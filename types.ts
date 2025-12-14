@@ -27,17 +27,12 @@ export interface Furniture {
   outlineColor?: string;
   shadowColor?: string;
   shape?: 'rectangle' | 'circle' | 'ellipse' | 'l-shape' | 't-shape' | 'polygon';
-  // 圆形和椭圆形的特殊属性
   radius?: number;
   radiusX?: number;
   radiusY?: number;
-  // 多边形的点
   points?: {x: number, y: number}[];
-  // 是否填充
   fill?: boolean;
-  // 边框宽度
   borderWidth?: number;
-  // 边框颜色
   borderColor?: string;
 }
 
@@ -103,6 +98,15 @@ export interface SimAppearance {
     pants: string;
 }
 
+// [新增] 记忆接口
+export interface Memory {
+    id: string;
+    time: string; // 记录发生的时间字符串
+    type: 'job' | 'social' | 'life' | 'achievement' | 'bad';
+    text: string;
+    relatedSimId?: string; // 如果是社交事件，记录对方ID
+}
+
 export interface SimData {
   id: string;
   name: string;
@@ -127,11 +131,14 @@ export interface SimData {
   workPerformance: number;
   job: Job;
   dailyExpense: number;
-  dailyIncome: number; // [New] Added daily income tracking
+  dailyIncome: number; 
   isSideHustle?: boolean;
   
   buffs: Buff[];
   mood: number;
+
+  // [新增] 市民的记忆列表
+  memories: Memory[];
 
   action: string;
   bubble?: { text: string | null; type: string; timer: number };

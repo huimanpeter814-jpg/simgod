@@ -120,10 +120,17 @@ export const DecisionLogic = {
     findObject(sim: Sim, type: string) {
         let utility = type;
 
+        // [优化] 更完善的映射表
         const simpleMap: Record<string, string> = {
-             hunger: 'hunger', bladder: 'bladder', hygiene: 'hygiene',
-             cooking: 'cooking', gardening: 'gardening', fishing: 'fishing',
-             art: 'art', play: 'play'
+             hunger: 'hunger', 
+             bladder: 'bladder', 
+             hygiene: 'hygiene',
+             energy: 'energy',
+             cooking: 'cooking', 
+             gardening: 'gardening', 
+             fishing: 'fishing',
+             art: 'art', 
+             play: 'play'
         };
         
         if (simpleMap[type]) utility = simpleMap[type];
@@ -141,20 +148,36 @@ export const DecisionLogic = {
         } else if (type === 'energy') {
              const beds = GameStore.furnitureIndex.get('energy') || [];
              candidates = candidates.concat(beds);
+             // 如果非常困，沙发也可以睡
              if (sim.needs.energy < 30) {
                  const sofas = GameStore.furnitureIndex.get('comfort') || [];
                  candidates = candidates.concat(sofas);
              }
         } else if (type === 'hunger') {
+            // [关键] 优先把免费的 hunger 资源 (餐桌、饮水机) 加入候选
             candidates = candidates.concat(GameStore.furnitureIndex.get('hunger') || []);
             candidates = candidates.concat(GameStore.furnitureIndex.get('eat_out') || []);
             candidates = candidates.concat(GameStore.furnitureIndex.get('buy_drink') || []);
+            candidates = candidates.concat(GameStore.furnitureIndex.get('buy_food') || []);
+        } else if (type === 'hygiene') {
+             // [关键] 同时寻找 hygiene 和 shower
+             candidates = candidates.concat(GameStore.furnitureIndex.get('hygiene') || []);
+             candidates = candidates.concat(GameStore.furnitureIndex.get('shower') || []);
+        } else if (type === 'bladder') {
+             // [关键] 同时寻找 bladder 和 comfort (兼容旧配置)
+             candidates = candidates.concat(GameStore.furnitureIndex.get('bladder') || []);
+             if (candidates.length === 0) {
+                 // 只有在没找到 bladder 专用设施时才找 comfort，避免去坐沙发上厕所
+                 const comforts = GameStore.furnitureIndex.get('comfort') || [];
+                 candidates = candidates.concat(comforts.filter(f => f.label.includes('马桶')));
+             }
         } else {
             candidates = GameStore.furnitureIndex.get(utility) || [];
         }
 
         if (candidates.length) {
             candidates = candidates.filter((f: Furniture)=> {
+                 // [关键] 严格检查金钱，防止卡死
                  if (f.cost && f.cost > sim.money) return false;
                  if (f.reserved && f.reserved !== sim.id) return false;
                  if (!f.multiUser) {
@@ -165,18 +188,29 @@ export const DecisionLogic = {
             });
 
             if (candidates.length) {
+                // [优化] 距离排序
                 candidates.sort((a: Furniture, b: Furniture) => {
                     const distA = Math.pow(a.x - sim.pos.x, 2) + Math.pow(a.y - sim.pos.y, 2);
                     const distB = Math.pow(b.x - sim.pos.x, 2) + Math.pow(b.y - sim.pos.y, 2);
                     return distA - distB;
                 });
 
+                // 取最近的几个随机，增加自然感
                 let obj = candidates[Math.floor(Math.random() * Math.min(candidates.length, 3))];
                 
                 sim.target = { x: obj.x + obj.w / 2, y: obj.y + obj.h / 2 };
                 sim.interactionTarget = obj;
+                // [调试]
+                // console.log(`${sim.name} decided to satisfy ${type} at ${obj.label}`);
                 return;
+            } else {
+                // [调试] 找到了类型但都被占用或买不起
+                // console.log(`${sim.name} found candidates for ${type} but filtered out (money: ${sim.money})`);
+                sim.say("没钱/没位置...", 'bad');
             }
+        } else {
+             // [调试] 没找到任何该类型的家具
+              console.log(`${sim.name} could not find any object for ${type}`);
         }
         DecisionLogic.wander(sim);
     },
