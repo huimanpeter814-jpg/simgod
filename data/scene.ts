@@ -141,14 +141,14 @@ export const ROOMS = [
     // === 🏙️ 北部：CBD ===
     { id: 'cbd_plaza_ground', x: 580, y: 20, w: 1020, h: 360, label: '', color: '#f0f5ff', pixelPattern: 'grid' },
     { id: 'office_tower_a', x: 20, y: 20, w: 460, h: 360, label: '科技大厦', color: '#d4e0f0', pixelPattern: 'windows' },
-    { id: 'office_carpet_work', x: 40, y: 40, w: 300, h: 200, label: '', color: '#c4d0e4', pixelPattern: 'dots' },
+    { id: 'office_carpet_work', x: 40, y: 40, w: 400, h: 300, label: '', color: '#c4d0e4', pixelPattern: 'dots' },
     
     { id: 'office_tower_b', x: 620, y: 40, w: 450, h: 320, label: '环球金融中心', color: '#ffffff', pixelPattern: 'checker' },
     { id: 'design_studio', x: 1100, y: 40, w: 380, h: 280, label: '像素艺术工作室', color: PALETTE.build_brick_white, pixelPattern: 'brush' },
     
-    { id: 'luxury_ground', x: 1480, y: 20, w: 750, h: 360, label: '', color: PALETTE.ground_wood_light, pixelPattern: 'wood' },
-    { id: 'luxury_apt_1', x: 1500, y: 40, w: 350, h: 320, label: '云顶公寓 I', color: '#fff5e0', pixelPattern: 'luxury' },
-    { id: 'luxury_apt_2', x: 1870, y: 40, w: 350, h: 320, label: '云顶公寓 II', color: '#fff5e0', pixelPattern: 'luxury' },
+    { id: 'talent_ground_n', x: 1480, y: 20, w: 750, h: 360, label: '', color: '#f0f2f8', pixelPattern: 'simple' },
+    { id: 'talent_apt_n1', x: 1500, y: 40, w: 350, h: 320, label: '人才公寓 N1', color: PALETTE.build_brick_white, pixelPattern: 'brick' },
+    { id: 'talent_apt_n2', x: 1870, y: 40, w: 350, h: 320, label: '人才公寓 N2', color: PALETTE.build_brick_white, pixelPattern: 'brick' },
 
     // === 🌳 中部：中央公园 ===
     { id: 'park_base', x: 600, y: 480, w: 1000, h: 670, label: '', color: PALETTE.ground_grass_dark, pixelPattern: 'grass' },
@@ -237,7 +237,7 @@ export const FURNITURE: Furniture[] = [
     // 🌳 城市街道设施 - 像素风优化
     // -----------------------------------------------------
     // 像素风梧桐行道树
-    ...createRow('tree_rd_top', 20, 420, 24, 100, 0, { 
+    ...createRow('tree_rd_top', 620, 460, 10, 100, 0, { 
         w: 42, h: 42, 
         color: '#253048', 
         label: '梧桐树', 
@@ -247,7 +247,7 @@ export const FURNITURE: Furniture[] = [
         pixelPattern: 'tree_pixel',
         pixelOutline: true
     }),
-    ...createRow('tree_rd_bot', 20, 1170, 24, 100, 0, { 
+    ...createRow('tree_rd_bot', 620, 1100, 10, 100, 0, { 
         w: 42, h: 42, 
         color: '#253048', 
         label: '梧桐树', 
@@ -259,7 +259,7 @@ export const FURNITURE: Furniture[] = [
     }),
     
     // 像素风路灯
-    ...createRow('light_v_l', 535, 20, 18, 0, 100, { 
+    ...createRow('light_v_l', 580, 520, 7, 0, 100, { 
         w: 12, h: 12, 
         color: '#ffd93d', 
         label: '路灯', 
@@ -269,7 +269,7 @@ export const FURNITURE: Furniture[] = [
         pixelGlow: true,
         glowColor: '#fff9a8'
     }),
-    ...createRow('light_v_r', 1635, 20, 18, 0, 100, { 
+    ...createRow('light_v_r', 1610, 520, 7, 0, 100, { 
         w: 12, h: 12, 
         color: '#ffd93d', 
         label: '路灯', 
@@ -281,14 +281,14 @@ export const FURNITURE: Furniture[] = [
     }),
 
     // 斑马线 (像素风格)
-    ...createRow('zebra_cross_1', 500, 410, 8, 0, 12, { 
+    ...createRow('zebra_cross_1', 500, 380, 8, 0, 12, { 
         w: 84, h: 6, 
         color: '#f8f9fa', 
         label: '', 
         utility: 'none',
         pixelPattern: 'zebra'
     }),
-    ...createRow('zebra_cross_2', 1600, 1160, 8, 0, 12, { 
+    ...createRow('zebra_cross_2', 1200, 1160, 8, 0, 12, { 
         w: 84, h: 6, 
         color: '#f8f9fa', 
         label: '', 
@@ -297,26 +297,26 @@ export const FURNITURE: Furniture[] = [
     }),
 
     // 街道杂物 (像素风)
-    { id: 'hydrant_1', x: 480, y: 365, w: 18, h: 18, color: '#ff5252', label: '消防栓', utility: 'none', pixelOutline: true },
-    { id: 'trash_can_1', x: 820, y: 365, w: 24, h: 24, color: '#2c3e50', label: '分类垃圾桶', utility: 'none', pixelPattern: 'trash' },
-    { id: 'trash_can_2', x: 1200, y: 365, w: 24, h: 24, color: '#2c3e50', label: '分类垃圾桶', utility: 'none', pixelPattern: 'trash' },
+    { id: 'hydrant_1', x: 590, y: 340, w: 18, h: 18, color: '#ff5252', label: '消防栓', utility: 'none', pixelOutline: true },
+    { id: 'trash_can_1', x: 590, y: 300, w: 24, h: 24, color: '#2c3e50', label: '分类垃圾桶', utility: 'none', pixelPattern: 'trash' },
+    { id: 'trash_can_2', x: 1150, y: 330, w: 24, h: 24, color: '#2c3e50', label: '分类垃圾桶', utility: 'none', pixelPattern: 'trash' },
     { id: 'manhole_1', x: 600, y: 440, w: 24, h: 24, color: '#5a6572', label: '窨井盖', utility: 'none', pixelPattern: 'manhole' },
 
     // 像素风自动贩卖机
-    { id: 'vending_h1', x: 400, y: 360, w: 44, h: 34, color: '#ff5252', label: '可乐贩卖机', utility: 'buy_drink', dir: 'down', pixelPattern: 'vending' },
-    { id: 'vending_h2', x: 450, y: 360, w: 44, h: 34, color: '#4a7dff', label: '矿泉水贩卖机', utility: 'buy_drink', dir: 'down', pixelPattern: 'vending' },
-    { id: 'vending_h3', x: 1200, y: 360, w: 44, h: 34, color: '#ff9f1a', label: '零食贩卖机', utility: 'buy_drink', dir: 'down', pixelPattern: 'vending' },
+    { id: 'vending_h1', x: 400, y: 460, w: 44, h: 34, color: '#ff5252', label: '可乐贩卖机', utility: 'buy_drink', dir: 'down', pixelPattern: 'vending' },
+    { id: 'vending_h2', x: 450, y: 460, w: 44, h: 34, color: '#4a7dff', label: '矿泉水贩卖机', utility: 'buy_drink', dir: 'down', pixelPattern: 'vending' },
+    { id: 'vending_h3', x: 1100, y: 330, w: 44, h: 34, color: '#ff9f1a', label: '零食贩卖机', utility: 'buy_drink', dir: 'down', pixelPattern: 'vending' },
     
     // 像素风公交车站
-    { id: 'bus_stop_1', x: 800, y: 360, w: 126, h: 24, color: '#a8b4c8', label: '公交站: CBD北', utility: 'waiting', dir: 'down', pixelPattern: 'bus_stop' },
-    { id: 'bus_ad_1', x: 930, y: 360, w: 12, h: 24, color: '#4a7dff', label: '广告牌', utility: 'none', pixelPattern: 'ad_pixel' },
-    { id: 'bus_stop_2', x: 1800, y: 1120, w: 126, h: 24, color: '#a8b4c8', label: '公交站: 医院南', utility: 'waiting', dir: 'up', pixelPattern: 'bus_stop' },
+   // { id: 'bus_stop_1', x: 800, y: 360, w: 126, h: 24, color: '#a8b4c8', label: '公交站: CBD北', utility: 'waiting', dir: 'down', pixelPattern: 'bus_stop' },
+    //{ id: 'bus_ad_1', x: 930, y: 360, w: 12, h: 24, color: '#4a7dff', label: '广告牌', utility: 'none', pixelPattern: 'ad_pixel' },
+    //{ id: 'bus_stop_2', x: 1800, y: 1120, w: 126, h: 24, color: '#a8b4c8', label: '公交站: 医院南', utility: 'waiting', dir: 'up', pixelPattern: 'bus_stop' },
 
     // -----------------------------------------------------
     // 🏢 北部 CBD - 像素科技风
     // -----------------------------------------------------
     // Tech Tower - 像素办公桌
-    ...createGrid('tech_desk', 120, 80, 6, 4, 60, 65, { 
+    ...createGrid('tech_desk', 50, 50, 6, 4, 60, 65, { 
         w: 48, h: 32, 
         color: '#2c3e50', 
         label: '升降办公桌', 
@@ -324,21 +324,21 @@ export const FURNITURE: Furniture[] = [
         dir: 'down',
         pixelPattern: 'desk_pixel'
     }),
-    ...createGrid('monitor_l', 125, 82, 6, 4, 60, 65, { 
+    ...createGrid('monitor_l', 60, 50, 6, 4, 60, 65, { 
         w: 16, h: 6, 
         color: PALETTE.deco_tech_glow, 
         label: '', 
         utility: 'none',
         pixelGlow: true
     }),
-    ...createGrid('monitor_r', 145, 82, 6, 4, 60, 65, { 
+    ...createGrid('monitor_r', 70, 50, 6, 4, 60, 65, { 
         w: 16, h: 6, 
         color: PALETTE.deco_tech_glow, 
         label: '', 
         utility: 'none',
         pixelGlow: true
     }),
-    ...createRow('tech_chair', 130, 115, 6, 60, 0, { 
+    ...createGrid('tech_chair', 65, 70, 6, 4, 60, 65, { 
         w: 22, h: 22, 
         color: '#8a9ca6', 
         label: '人体工学椅', 
@@ -348,7 +348,7 @@ export const FURNITURE: Furniture[] = [
     }),
     
     // 像素服务器组
-    ...createRow('server_rack', 390, 60, 5, 0, 45, { 
+    ...createRow('server_rack', 50, 300, 4, 75, 0, { 
         w: 64, h: 38, 
         color: '#253048', 
         label: '服务器组', 
@@ -358,30 +358,31 @@ export const FURNITURE: Furniture[] = [
         pixelGlow: true,
         glowColor: '#00ffaa'
     }),
-    { id: 'server_console', x: 380, y: 240, w: 34, h: 24, color: '#a8b4c8', label: '控制台', utility: 'work', pixelPattern: 'console' },
+    { id: 'server_console', x: 350, y: 310, w: 34, h: 24, color: '#a8b4c8', label: '控制台', utility: 'work', pixelPattern: 'console' },
     
     // 像素休闲区
-    { id: 'water_cooler', x: 450, y: 300, w: 24, h: 24, color: '#00d2d3', label: '饮水机', utility: 'drink', pixelPattern: 'water_cooler' },
-    { id: 'coffee_maker', x: 475, y: 300, w: 24, h: 24, color: '#ff6b6b', label: '意式咖啡机', utility: 'drink', pixelPattern: 'coffee_machine' },
-    { id: 'office_sofa_l', x: 400, y: 330, w: 84, h: 34, color: '#6c7a8a', label: '休息沙发', utility: 'comfort', pixelPattern: 'sofa_pixel' },
-    { id: 'office_plant_1', x: 380, y: 330, w: 18, h: 18, color: PALETTE.deco_plant, label: '龟背竹', utility: 'none', pixelPattern: 'plant_pixel' },
+    { id: 'water_cooler', x: 410, y: 300, w: 24, h: 24, color: '#00d2d3', label: '饮水机', utility: 'drink', pixelPattern: 'water_cooler' },
+    { id: 'coffee_maker', x: 440, y: 300, w: 24, h: 24, color: '#ff6b6b', label: '意式咖啡机', utility: 'drink', pixelPattern: 'coffee_machine' },
+    { id: 'office_sofa_l', x: 390, y: 330, w: 84, h: 34, color: '#6c7a8a', label: '休息沙发', utility: 'comfort', pixelPattern: 'sofa_pixel' },
+    { id: 'office_plant_1', x: 30, y: 350, w: 18, h: 18, color: PALETTE.deco_plant, label: '龟背竹', utility: 'none', pixelPattern: 'plant_pixel' },
 
     // Finance Center - 像素会议区
-    { id: 'conf_rug', x: 740, y: 140, w: 188, h: 148, color: '#a8b4c8', label: '地毯', utility: 'none', pixelPattern: 'rug_fancy' },
-    { id: 'conf_table', x: 750, y: 150, w: 168, h: 84, color: '#f0f5ff', label: '大理石会议桌', utility: 'work_group', dir: 'down', multiUser: true, pixelPattern: 'table_marble' },
-    { id: 'conf_projector', x: 800, y: 140, w: 64, h: 12, color: '#253048', label: '投影仪', utility: 'none', pixelPattern: 'tech' },
-    ...createRow('conf_chair_t', 760, 130, 4, 44, 0, { w: 22, h: 22, color: '#253048', label: '皮椅', utility: 'sit', pixelPattern: 'chair_leather' }),
-    ...createRow('conf_chair_b', 760, 240, 4, 44, 0, { w: 22, h: 22, color: '#253048', label: '皮椅', utility: 'sit', pixelPattern: 'chair_leather' }),
+    { id: 'conf_rug', x: 650, y: 65, w: 290, h: 180, color: '#a8b4c8', label: '地毯', utility: 'none', pixelPattern: 'rug_fancy' },
+    { id: 'conf_table', x: 720, y: 110, w: 168, h: 84, color: '#f0f5ff', label: '大理石会议桌', utility: 'work_group', dir: 'down', multiUser: true, pixelPattern: 'table_marble' },
+    { id: 'conf_projector', x: 680, y: 120, w: 12, h: 64, color: '#253048', label: '投影仪', utility: 'none', pixelPattern: 'tech' },
+    ...createRow('conf_chair_t', 730, 80, 4, 44, 0, { w: 22, h: 22, color: '#253048', label: '皮椅', utility: 'sit', pixelPattern: 'chair_leather' }),
+    ...createRow('conf_chair_b', 730, 200, 4, 44, 0, { w: 22, h: 22, color: '#253048', label: '皮椅', utility: 'sit', pixelPattern: 'chair_leather' }),
     
     // 像素总裁办公室
-    { id: 'boss_area_rug', x: 780, y: 270, w: 168, h: 108, color: PALETTE.deco_rug_persian, label: '波斯地毯', utility: 'none', pixelPattern: 'rug_persian' },
-    { id: 'boss_desk', x: 800, y: 290, w: 126, h: 54, color: PALETTE.deco_wood_red, label: '红木班台', utility: 'work', pixelPattern: 'desk_wood' },
-    { id: 'boss_pc', x: 840, y: 295, w: 44, h: 12, color: '#1a1e2c', label: '一体机', utility: 'none', pixelPattern: 'pc_pixel' },
-    { id: 'boss_chair', x: 840, y: 345, w: 44, h: 44, color: '#253048', label: '老板椅', utility: 'sit', pixelPattern: 'chair_boss' },
-    { id: 'boss_bookshelf', x: 950, y: 260, w: 24, h: 108, color: PALETTE.deco_wood_red, label: '藏书架', utility: 'none', pixelPattern: 'bookshelf' },
-    { id: 'boss_safe', x: 750, y: 300, w: 34, h: 34, color: '#5a6572', label: '保险柜', utility: 'none', pixelPattern: 'safe' },
+    { id: 'boss_area_rug', x: 830, y: 245, w: 230, h: 108, color: PALETTE.deco_rug_persian, label: '波斯地毯', utility: 'none', pixelPattern: 'rug_persian' },
+    { id: 'boss_desk', x: 880, y: 250, w: 126, h: 54, color: PALETTE.deco_wood_red, label: '红木班台', utility: 'work', pixelPattern: 'desk_wood' },
+    { id: 'boss_pc', x: 900, y: 270, w: 44, h: 12, color: '#1a1e2c', label: '一体机', utility: 'none', pixelPattern: 'pc_pixel' },
+    { id: 'boss_chair', x: 900, y: 300, w: 44, h: 44, color: '#253048', label: '老板椅', utility: 'sit', pixelPattern: 'chair_boss' },
+    { id: 'boss_bookshelf', x: 1020, y: 250, w: 24, h: 80, color: PALETTE.deco_wood_red, label: '藏书架', utility: 'none', pixelPattern: 'bookshelf' },
+    { id: 'boss_safe', x: 840, y: 310, w: 34, h: 34, color: '#5a6572', label: '保险柜', utility: 'none', pixelPattern: 'safe' },
     
     // Pixel Studio - 像素艺术区
+    { id: 'messy_rug', x: 1350, y: 80, w: 108, h: 108, color: '#ff9c8a', label: '艺术地毯', utility: 'none', pixelPattern: 'rug_art' },
     ...createGrid('art_easel', 1120, 80, 3, 3, 90, 80, { 
         w: 44, h: 54, 
         color: PALETTE.accent_red, 
@@ -389,47 +390,62 @@ export const FURNITURE: Furniture[] = [
         utility: 'paint',
         pixelPattern: 'easel'
     }),
-    { id: 'plaster_statue', x: 1380, y: 80, w: 34, h: 34, color: '#ffffff', label: '石膏像', utility: 'none', pixelPattern: 'statue' },
-    { id: 'messy_rug', x: 1250, y: 150, w: 108, h: 108, color: '#ff9c8a', label: '艺术地毯', utility: 'none', pixelPattern: 'rug_art' },
+    { id: 'plaster_statue', x: 1410, y: 80, w: 34, h: 34, color: '#ffffff', label: '石膏像', utility: 'none', pixelPattern: 'statue' },
     { id: 'paint_buckets', x: 1270, y: 170, w: 24, h: 24, color: '#ff6b81', label: '颜料桶', utility: 'none', pixelPattern: 'paint' },
     { id: 'coffee_corner', x: 1400, y: 250, w: 44, h: 44, color: '#ff5252', label: '咖啡角', utility: 'drink', pixelPattern: 'coffee_corner' },
     { id: 'bean_bag_1', x: 1350, y: 100, w: 44, h: 44, color: '#ff7aa8', label: '懒人沙发', utility: 'comfort', pixelPattern: 'beanbag' },
     { id: 'bean_bag_2', x: 1390, y: 120, w: 44, h: 44, color: '#8a7cff', label: '懒人沙发', utility: 'comfort', pixelPattern: 'beanbag' },
 
     // -----------------------------------------------------
-    // 🏠 豪华公寓 - 像素奢华风
+    // 🏠 人才公寓 (北) - 改造自原豪华公寓
     // -----------------------------------------------------
-    // Apt 1
-    { id: 'lux_kitchen_island', x: 1550, y: 150, w: 126, h: 64, color: '#ffffff', label: '大理石中岛', utility: 'cook', pixelPattern: 'kitchen_island' },
-    { id: 'lux_stool_1', x: 1560, y: 215, w: 22, h: 22, color: '#a8b4c8', label: '吧台椅', utility: 'sit', pixelPattern: 'stool_bar' },
-    { id: 'lux_stool_2', x: 1600, y: 215, w: 22, h: 22, color: '#a8b4c8', label: '吧台椅', utility: 'sit', pixelPattern: 'stool_bar' },
-    { id: 'lux_piano_body', x: 1720, y: 270, w: 84, h: 64, color: '#1a1e2c', label: '三角钢琴', utility: 'music', pixelPattern: 'piano' },
-    { id: 'lux_piano_bench', x: 1750, y: 335, w: 34, h: 18, color: '#2c3e50', label: '琴凳', utility: 'sit', pixelPattern: 'piano_bench' },
-    { id: 'lux_bath', x: 1500, y: 280, w: 84, h: 44, color: '#ffffff', label: '按摩浴缸', utility: 'comfort', pixelPattern: 'bath_jacuzzi' },
-
-    // Apt 2
-    { id: 'lux_bed_king', x: 1900, y: 80, w: 126, h: 116, color: PALETTE.accent_yellow, label: 'King Size大床', utility: 'energy', multiUser: true, pixelPattern: 'bed_king' },
-    { id: 'lux_bed_side_l', x: 1870, y: 90, w: 28, h: 28, color: '#d4bcaa', label: '床头柜', utility: 'none', pixelPattern: 'nightstand' },
-    { id: 'lux_bed_side_r', x: 2025, y: 90, w: 28, h: 28, color: '#d4bcaa', label: '床头柜', utility: 'none', pixelPattern: 'nightstand' },
-    { id: 'lux_wardrobe', x: 2120, y: 80, w: 34, h: 158, color: '#5a6572', label: '步入式衣柜', utility: 'none', pixelPattern: 'wardrobe' },
-    { id: 'lux_tv_unit', x: 1900, y: 290, w: 148, h: 24, color: '#2c3e50', label: '电视柜', utility: 'none', pixelPattern: 'tv_unit' },
-    { id: 'lux_tv', x: 1920, y: 285, w: 108, h: 12, color: '#1a1e2c', label: 'OLED 电视', utility: 'watch_tv', pixelPattern: 'tv_oled' },
-    { id: 'lux_plant_big', x: 2100, y: 310, w: 44, h: 44, color: PALETTE.deco_plant, label: '大型琴叶榕', utility: 'none', pixelPattern: 'plant_big' },
-
+    // N1 Block (原 Apt 1)
+    ...createGrid('dorm_bed_n1', 1520, 80, 3, 2, 120, 120, { 
+        w: 54, h: 84, 
+        color: '#ffb142', 
+        label: '上下铺', 
+        utility: 'energy',
+        pixelPattern: 'bed_bunk'
+    }),
+    ...createGrid('dorm_desk_n1', 1590, 80, 2, 2, 120, 120, { 
+        w: 34, h: 34, 
+        color: '#a8b4c8', 
+        label: '书桌', 
+        utility: 'work',
+        pixelPattern: 'desk_simple'
+    }),
+    
+    // N2 Block (原 Apt 2)
+    ...createGrid('dorm_bed_n2', 1890, 80, 3, 2, 120, 120, { 
+        w: 54, h: 84, 
+        color: '#1dd1a1', 
+        label: '上下铺', 
+        utility: 'energy',
+        pixelPattern: 'bed_bunk'
+    }),
+    ...createGrid('dorm_desk_n2', 1960, 80, 2, 2, 120, 120, { 
+        w: 34, h: 34, 
+        color: '#a8b4c8', 
+        label: '书桌', 
+        utility: 'work',
+        pixelPattern: 'desk_simple'
+    }),
+    
+    
     // -----------------------------------------------------
     // 🌳 中央公园 - 像素自然风
     // -----------------------------------------------------
-    { id: 'park_fountain_base', x: 1050, y: 550, w: 126, h: 126, color: '#a8b4c8', label: '喷泉池', utility: 'none', pixelPattern: 'fountain_base' },
-    { id: 'park_fountain_water', x: 1070, y: 570, w: 84, h: 84, color: '#5a8fff', label: '喷泉水景', utility: 'none', pixelPattern: 'water_anim' },
+    { id: 'park_fountain_base', x: 1040, y: 750, w: 126, h: 126, color: '#a8b4c8', label: '喷泉池', utility: 'none', pixelPattern: 'fountain_base' },
+    { id: 'park_fountain_water', x: 1060, y: 770, w: 84, h: 84, color: '#5a8fff', label: '喷泉水景', utility: 'none', pixelPattern: 'water_anim' },
     
-    ...createGrid('flower_bed_red', 620, 520, 2, 2, 80, 80, { 
+    ...createGrid('flower_bed_red', 680, 560, 2, 2, 80, 80, { 
         w: 44, h: 44, 
         color: PALETTE.deco_flower_red, 
         label: '玫瑰花坛', 
         utility: 'none',
         pixelPattern: 'flower_rose'
     }),
-    ...createGrid('flower_bed_yel', 1300, 520, 2, 2, 80, 80, { 
+    ...createGrid('flower_bed_yel', 1400, 560, 2, 2, 80, 80, { 
         w: 44, h: 44, 
         color: PALETTE.deco_flower_yellow, 
         label: '郁金香花坛', 
@@ -438,10 +454,10 @@ export const FURNITURE: Furniture[] = [
     }),
 
     { id: 'duck_boat_1', x: 900, y: 700, w: 44, h: 34, color: '#ffdd59', label: '小黄鸭船', utility: 'play', pixelPattern: 'boat_duck' },
-    { id: 'duck_boat_2', x: 1000, y: 750, w: 44, h: 34, color: '#ffdd59', label: '小黄鸭船', utility: 'play', pixelPattern: 'boat_duck' },
-    { id: 'wooden_pier', x: 1050, y: 880, w: 108, h: 64, color: '#d4bcaa', label: '亲水平台', utility: 'none', pixelPattern: 'pier_wood' },
+    { id: 'duck_boat_2', x: 1200, y: 750, w: 44, h: 34, color: '#ffdd59', label: '小黄鸭船', utility: 'play', pixelPattern: 'boat_duck' },
+    { id: 'wooden_pier', x: 1050, y: 890, w: 108, h: 64, color: '#d4bcaa', label: '亲水平台', utility: 'none', pixelPattern: 'pier_wood' },
     
-    ...createRow('park_bench_t', 600, 640, 6, 100, 0, { 
+    ...createRow('park_bench_t', 850, 580, 5, 110, 0, { 
         w: 54, h: 24, 
         color: '#e17055', 
         label: '公园长椅', 
@@ -453,11 +469,11 @@ export const FURNITURE: Furniture[] = [
     { id: 'picnic_basket', x: 720, y: 920, w: 34, h: 24, color: '#d4bcaa', label: '野餐篮', utility: 'eat', pixelPattern: 'basket' },
     { id: 'picnic_mat_b', x: 820, y: 1000, w: 108, h: 84, color: '#5a8fff', label: '野餐垫', utility: 'none', pixelPattern: 'picnic_mat' },
     
-    { id: 'food_cart_1', x: 980, y: 960, w: 64, h: 44, color: '#d35400', label: '热狗餐车', utility: 'buy_food', pixelPattern: 'food_cart' },
-    { id: 'food_cart_umbrella', x: 990, y: 960, w: 44, h: 44, color: '#ff9c8a', label: '遮阳伞', utility: 'none', pixelPattern: 'umbrella' },
-    { id: 'icecream_cart', x: 1150, y: 960, w: 64, h: 44, color: '#ffd166', label: '冰淇淋车', utility: 'buy_food', pixelPattern: 'icecream_cart' },
+    { id: 'food_cart_1', x: 980, y: 980, w: 64, h: 44, color: '#d35400', label: '热狗餐车', utility: 'buy_food', pixelPattern: 'food_cart' },
+    { id: 'food_cart_umbrella', x: 1100, y: 980, w: 44, h: 44, color: '#ff9c8a', label: '遮阳伞', utility: 'none', pixelPattern: 'umbrella' },
+    { id: 'icecream_cart', x: 1150, y: 980, w: 64, h: 44, color: '#ffd166', label: '冰淇淋车', utility: 'buy_food', pixelPattern: 'icecream_cart' },
     
-    ...createGrid('forest_dense', 600, 1050, 5, 3, 40, 40, { 
+    ...createGrid('forest_dense', 1350, 970, 5, 3, 40, 40, { 
         w: 34, h: 34, 
         color: '#00b894', 
         label: '灌木丛', 
@@ -516,7 +532,7 @@ export const FURNITURE: Furniture[] = [
     }),
     
     // Youth Apt
-    ...createGrid('lazy_sofa', 60, 1160, 4, 2, 90, 80, { 
+    ...createGrid('lazy_sofa', 60, 1200, 4, 3, 90, 80, { 
         w: 54, h: 44, 
         color: '#7158e2', 
         label: '懒人沙发', 
@@ -524,8 +540,8 @@ export const FURNITURE: Furniture[] = [
         pixelPattern: 'sofa_lazy'
     }),
     { id: 'pizza_box', x: 80, y: 1210, w: 24, h: 24, color: '#ff9c8a', label: '披萨盒', utility: 'eat', pixelPattern: 'pizza_box' },
-    { id: 'gaming_tv_wall', x: 250, y: 1200, w: 158, h: 12, color: '#1a1e2c', label: '电视墙', utility: 'none', pixelPattern: 'tv_wall' },
-    { id: 'console_ps5', x: 260, y: 1215, w: 34, h: 24, color: '#ffffff', label: '游戏主机', utility: 'play', pixelPattern: 'console_game' },
+    { id: 'gaming_tv_wall', x: 250, y: 1150, w: 158, h: 12, color: '#1a1e2c', label: '电视墙', utility: 'none', pixelPattern: 'tv_wall' },
+    { id: 'console_ps5', x: 260, y: 1170, w: 34, h: 24, color: '#ffffff', label: '游戏主机', utility: 'play', pixelPattern: 'console_game' },
     
     // Community Center
     ...createGrid('mahjong', 80, 1500, 3, 2, 110, 100, { 
@@ -536,21 +552,21 @@ export const FURNITURE: Furniture[] = [
         multiUser: true,
         pixelPattern: 'mahjong_table'
     }),
-    { id: 'pingpong', x: 350, y: 1550, w: 94, h: 54, color: '#4a7dff', label: '乒乓球桌', utility: 'play', pixelPattern: 'pingpong_table' },
+    { id: 'pingpong', x: 350, y: 1700, w: 94, h: 54, color: '#4a7dff', label: '乒乓球桌', utility: 'play', pixelPattern: 'pingpong_table' },
     { id: 'community_notice', x: 350, y: 1480, w: 64, h: 12, color: '#8a7cff', label: '公告栏', utility: 'read', pixelPattern: 'notice_board' },
 
     // -----------------------------------------------------
     // 🛍️ 商业街 - 像素购物风
     // -----------------------------------------------------
     // Mall
-    ...createGrid('cosmetic_cnt', 620, 1270, 4, 2, 80, 60, { 
+    ...createGrid('cosmetic_cnt', 620, 1300, 4, 2, 80, 60, { 
         w: 54, h: 34, 
         color: '#ff7aa8', 
         label: '美妆柜台', 
         utility: 'buy_item',
         pixelPattern: 'counter_cosmetic'
     }),
-    ...createGrid('cosmetic_mirror', 635, 1265, 4, 2, 80, 60, { 
+    ...createGrid('cosmetic_mirror', 635, 1310, 4, 2, 80, 60, { 
         w: 24, h: 6, 
         color: '#5a8fff', 
         label: '试妆镜', 
@@ -558,16 +574,16 @@ export const FURNITURE: Furniture[] = [
         pixelPattern: 'mirror'
     }),
     
-    ...createGrid('clothes_rack', 950, 1270, 3, 3, 80, 70, { 
-        w: 64, h: 12, 
+    ...createGrid('clothes_rack', 1000, 1270, 3, 3, 70, 80, { 
+        w: 12, h: 64, 
         color: '#e17055', 
         label: '当季新款', 
         utility: 'buy_item',
         pixelPattern: 'clothes_rack'
     }),
-    { id: 'mannequin_1', x: 920, y: 1280, w: 24, h: 24, color: '#ffdd59', label: '模特', utility: 'none', pixelPattern: 'mannequin' },
-    { id: 'mannequin_2', x: 920, y: 1350, w: 24, h: 24, color: '#ffdd59', label: '模特', utility: 'none', pixelPattern: 'mannequin' },
-    { id: 'fitting_room', x: 1150, y: 1270, w: 44, h: 108, color: '#a8b4c8', label: '试衣间', utility: 'none', pixelPattern: 'fitting_room' },
+    { id: 'mannequin_1', x: 950, y: 1280, w: 24, h: 24, color: '#ffdd59', label: '模特', utility: 'none', pixelPattern: 'mannequin' },
+    { id: 'mannequin_2', x: 950, y: 1350, w: 24, h: 24, color: '#ffdd59', label: '模特', utility: 'none', pixelPattern: 'mannequin' },
+    { id: 'fitting_room', x: 1100, y: 1550, w: 44, h: 108, color: '#a8b4c8', label: '试衣间', utility: 'none', pixelPattern: 'fitting_room' },
 
     { id: 'cashier_mall', x: 800, y: 1500, w: 158, h: 44, color: '#2c3e50', label: '服务台', utility: 'pay', pixelPattern: 'cashier' },
     
@@ -594,12 +610,11 @@ export const FURNITURE: Furniture[] = [
     }),
 
     // Cinema - 像素影院风
-    { id: 'ticket_booth', x: 1250, y: 1260, w: 84, h: 44, color: '#ff5252', label: '售票处', utility: 'pay', pixelPattern: 'ticket_booth' },
-    { id: 'popcorn_machine', x: 1350, y: 1230, w: 44, h: 44, color: '#ffd32a', label: '爆米花机', utility: 'buy_food', pixelPattern: 'popcorn_machine' },
-    { id: 'claw_machine_1', x: 1450, y: 1260, w: 44, h: 44, color: '#ff7aa8', label: '抓娃娃机', utility: 'play', pixelPattern: 'claw_machine' },
-    { id: 'movie_poster', x: 1550, y: 1260, w: 12, h: 64, color: '#4a7dff', label: '海报:阿凡达', utility: 'none', pixelPattern: 'poster' },
+    { id: 'ticket_booth', x: 1250, y: 1280, w: 84, h: 44, color: '#ff5252', label: '售票处', utility: 'pay', pixelPattern: 'ticket_booth' },
+    { id: 'popcorn_machine', x: 1350, y: 1280, w: 44, h: 44, color: '#ffd32a', label: '爆米花机', utility: 'buy_food', pixelPattern: 'popcorn_machine' },
+    { id: 'claw_machine_1', x: 1450, y: 1280, w: 44, h: 44, color: '#ff7aa8', label: '抓娃娃机', utility: 'play', pixelPattern: 'claw_machine' },
     
-    { id: 'screen_imax', x: 1280, y: 1350, w: 316, h: 12, color: '#ffffff', label: 'IMAX 巨幕', utility: 'none', pixelPattern: 'screen_cinema' },
+    { id: 'screen_imax', x: 1260, y: 1350, w: 316, h: 12, color: '#ffffff', label: 'IMAX 巨幕', utility: 'none', pixelPattern: 'screen_cinema' },
     ...createGrid('seat_imax_vip', 1280, 1400, 6, 2, 45, 50, { 
         w: 38, h: 38, 
         color: '#ff5252', 
@@ -640,15 +655,15 @@ export const FURNITURE: Furniture[] = [
         utility: 'buy_book',
         pixelPattern: 'bookshelf_hist'
     }),
-    ...createGrid('book_row_sci', 1720, 950, 8, 1, 60, 0, { 
+    ...createGrid('book_row_sci', 1720, 1050, 8, 1, 60, 0, { 
         w: 44, h: 108, 
         color: '#4a7dff', 
         label: '科技类书架', 
         utility: 'buy_book',
         pixelPattern: 'bookshelf_sci'
     }),
-    ...createGrid('read_desk', 1720, 1070, 4, 1, 140, 0, { 
-        w: 126, h: 54, 
+    ...createGrid('read_desk', 2300, 880, 1, 4, 0, 80, { 
+        w: 40, h: 60, 
         color: '#d35400', 
         label: '自习长桌', 
         utility: 'work',
@@ -660,7 +675,7 @@ export const FURNITURE: Furniture[] = [
     // 🏋️‍♀️ 健身与夜生活 - 像素动感风
     // -----------------------------------------------------
     // Gym
-    ...createRow('treadmill', 2020, 1270, 5, 60, 0, { 
+    ...createRow('treadmill', 2020, 1300, 5, 60, 0, { 
         w: 44, h: 84, 
         color: '#2c3e50', 
         label: '跑步机', 
@@ -668,7 +683,7 @@ export const FURNITURE: Furniture[] = [
         dir: 'up',
         pixelPattern: 'treadmill'
     }),
-    { id: 'yoga_area', x: 2020, y: 1400, w: 208, h: 84, color: '#ff9c8a', label: '瑜伽区', utility: 'stretch', pixelPattern: 'yoga_mat' },
+    { id: 'yoga_area', x: 2020, y: 1430, w: 208, h: 84, color: '#ff9c8a', label: '瑜伽区', utility: 'stretch', pixelPattern: 'yoga_mat' },
     ...createGrid('weights', 2050, 1550, 3, 2, 60, 60, { 
         w: 44, h: 44, 
         color: '#5a6572', 
@@ -676,7 +691,7 @@ export const FURNITURE: Furniture[] = [
         utility: 'lift',
         pixelPattern: 'weights_rack'
     }),
-    { id: 'water_station_gym', x: 2300, y: 1300, w: 34, h: 34, color: '#5a8fff', label: '直饮水', utility: 'drink', pixelPattern: 'water_station' },
+    { id: 'water_station_gym', x: 2300, y: 1400, w: 34, h: 34, color: '#5a8fff', label: '直饮水', utility: 'drink', pixelPattern: 'water_station' },
     
     // Arcade
     ...createGrid('arcade_racing', 1700, 1270, 4, 1, 60, 0, { 
@@ -687,7 +702,7 @@ export const FURNITURE: Furniture[] = [
         pixelPattern: 'arcade_racing',
         pixelGlow: true
     }),
-    ...createGrid('arcade_fight', 1700, 1360, 5, 2, 50, 60, { 
+    ...createGrid('arcade_fight', 1700, 1360, 4, 2, 50, 60, { 
         w: 44, h: 54, 
         color: '#e84393', 
         label: '格斗机台', 
@@ -706,9 +721,9 @@ export const FURNITURE: Furniture[] = [
         utility: 'sit',
         pixelPattern: 'stool_bar'
     }),
-    { id: 'dj_stage', x: 1850, y: 1520, w: 126, h: 54, color: '#7158e2', label: 'DJ台', utility: 'music', pixelPattern: 'dj_stage', pixelGlow: true },
+    { id: 'dj_stage', x: 1820, y: 1520, w: 126, h: 54, color: '#7158e2', label: 'DJ台', utility: 'music', pixelPattern: 'dj_stage', pixelGlow: true },
     { id: 'dance_floor', x: 1800, y: 1600, w: 158, h: 108, color: '#2c3e50', label: '舞池', utility: 'dance', pixelPattern: 'dance_floor', pixelGlow: true },
-    { id: 'speaker_l', x: 1800, y: 1520, w: 44, h: 64, color: '#1a1e2c', label: '低音炮', utility: 'none', pixelPattern: 'speaker' },
-    { id: 'speaker_r', x: 1980, y: 1520, w: 44, h: 64, color: '#1a1e2c', label: '低音炮', utility: 'none', pixelPattern: 'speaker' },
-    { id: 'vip_sofa', x: 1950, y: 1700, w: 84, h: 44, color: '#ff5252', label: '卡座', utility: 'comfort', pixelPattern: 'sofa_vip' },
+    { id: 'speaker_l', x: 1780, y: 1520, w: 44, h: 64, color: '#1a1e2c', label: '低音炮', utility: 'none', pixelPattern: 'speaker' },
+    { id: 'speaker_r', x: 1930, y: 1520, w: 44, h: 64, color: '#1a1e2c', label: '低音炮', utility: 'none', pixelPattern: 'speaker' },
+    { id: 'vip_sofa', x: 1835, y: 1720, w: 84, h: 44, color: '#ff5252', label: '卡座', utility: 'comfort', pixelPattern: 'sofa_vip' },
 ];

@@ -3,7 +3,28 @@ import { CONFIG, ROOMS, FURNITURE } from '../constants';
 import { GameStore, gameLoopStep, getActivePalette, drawAvatarHead } from '../utils/simulation';
 import { getAsset } from '../utils/assetLoader';
 
-const MS_PER_UPDATE = 1000 / 30; // 30 Ticks Per Second
+// ==========================================
+// 🕒 后台保活核心：Worker Timer
+// ==========================================
+// 创建一个 Web Worker 来充当稳定的节拍器
+// 浏览器的主线程 setTimeout/setInterval 在后台会被降频( throttled )，但 Worker 不会
+const createWorker = () => {
+    const blob = new Blob([`
+        let interval = null;
+        self.onmessage = function(e) {
+            if (e.data === 'start') {
+                if (interval) clearInterval(interval);
+                // 30 TPS (Ticks Per Second)
+                interval = setInterval(() => {
+                    self.postMessage('tick');
+                }, 1000 / 30);
+            } else if (e.data === 'stop') {
+                if (interval) clearInterval(interval);
+            }
+        };
+    `], { type: 'application/javascript' });
+    return new Worker(URL.createObjectURL(blob));
+};
 
 // ==========================================
 // 🎨 像素艺术渲染核心 (程序化生成)
@@ -234,10 +255,6 @@ const GameCanvas: React.FC = () => {
     const lastMousePos = useRef({ x: 0, y: 0 });
     const hasDragged = useRef(false);
 
-    // Game Loop State
-    const lastTimeRef = useRef<number>(0);
-    const lagRef = useRef<number>(0);
-
     const draw = (ctx: CanvasRenderingContext2D, alpha: number) => {
         // 关闭平滑处理以保持像素锐利
         ctx.imageSmoothingEnabled = false;
@@ -360,16 +377,15 @@ const GameCanvas: React.FC = () => {
         // 5. 绘制角色 (Sims)
         const renderSims = [...GameStore.sims].sort((a, b) => a.pos.y - b.pos.y);
         renderSims.forEach(sim => {
-            const prevX = sim.prevPos ? sim.prevPos.x : sim.pos.x;
-            const prevY = sim.prevPos ? sim.prevPos.y : sim.pos.y;
-            
-            const interpX = prevX + (sim.pos.x - prevX) * alpha;
-            const interpY = prevY + (sim.pos.y - prevY) * alpha;
+            // 在后台模式下，简化插值逻辑，直接绘制当前位置，避免状态不一致
+            // 如果需要极致平滑，可以在 Sim 类中记录 lastTickTime，但这对于像素风 30FPS 来说不是必须的
+            const renderX = sim.pos.x; 
+            const renderY = sim.pos.y; 
 
-            if (sim.action === 'working' && interpX < 0) return;
+            if (sim.action === 'working' && renderX < 0) return;
 
             ctx.save();
-            ctx.translate(interpX, interpY);
+            ctx.translate(renderX, renderY);
 
             // 选中标记
             if (GameStore.selectedSimId === sim.id) {
@@ -485,36 +501,37 @@ const GameCanvas: React.FC = () => {
         ctx.restore();
     };
 
-    // 动画循环逻辑
-    const animate = (timestamp: number) => {
-        if (!lastTimeRef.current) lastTimeRef.current = timestamp;
-        const elapsed = timestamp - lastTimeRef.current;
-        lastTimeRef.current = timestamp;
-
-        lagRef.current += elapsed;
-        if (lagRef.current > 1000) lagRef.current = 1000;
-
-        while (lagRef.current >= MS_PER_UPDATE) {
-            gameLoopStep();
-            lagRef.current -= MS_PER_UPDATE;
-        }
-
-        const alpha = lagRef.current / MS_PER_UPDATE;
-
+    // 🎨 渲染循环 (Draw Loop) - 使用 RAF
+    const renderLoop = (timestamp: number) => {
         const canvas = canvasRef.current;
         if (canvas) {
             const ctx = canvas.getContext('2d');
-            if (ctx) draw(ctx, alpha);
+            if (ctx) draw(ctx, 1);
         }
-        requestRef.current = requestAnimationFrame(animate);
+        requestRef.current = requestAnimationFrame(renderLoop);
     };
 
     useEffect(() => {
-        requestRef.current = requestAnimationFrame(animate);
+        // 1. 启动 Worker 逻辑循环 (后台保活)
+        const worker = createWorker();
+        worker.onmessage = (e) => {
+            if (e.data === 'tick') {
+                // 执行游戏逻辑更新 (30次/秒)
+                gameLoopStep();
+            }
+        };
+        worker.postMessage('start');
+
+        // 2. 启动渲染循环 (前台绘制)
+        requestRef.current = requestAnimationFrame(renderLoop);
+
         return () => {
+            // 清理
+            worker.postMessage('stop');
+            worker.terminate();
             if (requestRef.current) cancelAnimationFrame(requestRef.current);
         };
-    }, [camera]);
+    }, [camera]); // Camera change triggers redraw, but logic loop is persistent
 
     // 鼠标控制逻辑 (支持拖拽和平移)
     const handleMouseDown = (e: React.MouseEvent) => {
