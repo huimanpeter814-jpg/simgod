@@ -106,6 +106,15 @@ export const INTERACTIONS: Record<string, InteractionHandler> = {
     },
     'cooking': {
         verb: '烹饪', duration: 90,
+        onStart: (sim) => { 
+            // 如果是在后厨工作，设置为 working 状态，否则为 using
+            if (sim.interactionTarget?.utility === 'work') {
+                sim.action = 'working';
+            } else {
+                sim.action = 'using';
+            }
+            return true; 
+        },
         onUpdate: (sim, obj, f, getRate) => {
             sim.skills.cooking += 0.05 * f;
         }
@@ -139,6 +148,18 @@ export const INTERACTIONS: Record<string, InteractionHandler> = {
         verb: '工作 💻', duration: 480,
         getDuration: (sim) => sim.isSideHustle ? 180 : 480,
         getVerb: (sim) => sim.isSideHustle ? '接单赚外快 💻' : '工作 💻',
+        // [修复] 添加 onStart，明确将状态设置为 'working'，防止 checkSchedule 重复触发
+        onStart: (sim, obj) => {
+            // 如果是赚外快，我们可能不希望它被视为正式工作的 'working' 状态，
+            // 但为了防止逻辑冲突，这里统一处理，或者使用 'using' 也可以，
+            // 关键是正式工作必须是 'working'。
+            if (!sim.isSideHustle) {
+                sim.action = 'working';
+            } else {
+                sim.action = 'using'; // 外快保持 using 即可
+            }
+            return true;
+        },
         onFinish: (sim, obj) => {
             if (sim.isSideHustle && obj.label.includes('电脑')) {
                 const skillUsed = sim.skills.coding > sim.skills.creativity ? 'coding' : 'writing';

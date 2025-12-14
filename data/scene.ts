@@ -307,42 +307,39 @@ export const FURNITURE: Furniture[] = [
     { id: 'vending_h2', x: 450, y: 460, w: 44, h: 34, color: '#4a7dff', label: '矿泉水贩卖机', utility: 'buy_drink', dir: 'down', pixelPattern: 'vending' },
     { id: 'vending_h3', x: 1100, y: 330, w: 44, h: 34, color: '#ff9f1a', label: '零食贩卖机', utility: 'buy_drink', dir: 'down', pixelPattern: 'vending' },
     
-    // 像素风公交车站
-   // { id: 'bus_stop_1', x: 800, y: 360, w: 126, h: 24, color: '#a8b4c8', label: '公交站: CBD北', utility: 'waiting', dir: 'down', pixelPattern: 'bus_stop' },
-    //{ id: 'bus_ad_1', x: 930, y: 360, w: 12, h: 24, color: '#4a7dff', label: '广告牌', utility: 'none', pixelPattern: 'ad_pixel' },
-    //{ id: 'bus_stop_2', x: 1800, y: 1120, w: 126, h: 24, color: '#a8b4c8', label: '公交站: 医院南', utility: 'waiting', dir: 'up', pixelPattern: 'bus_stop' },
 
     // -----------------------------------------------------
     // 🏢 北部 CBD - 像素科技风
     // -----------------------------------------------------
     // Tech Tower - 像素办公桌
-    ...createGrid('tech_desk', 50, 50, 6, 4, 60, 65, { 
+    // [优化] 增加一列工位，确保员工有地方坐
+    ...createGrid('tech_desk', 50, 50, 7, 4, 60, 65, { 
         w: 48, h: 32, 
         color: '#2c3e50', 
         label: '升降办公桌', 
-        utility: 'work', 
+        utility: 'none', 
         dir: 'down',
         pixelPattern: 'desk_pixel'
     }),
-    ...createGrid('monitor_l', 60, 50, 6, 4, 60, 65, { 
+    ...createGrid('monitor_l', 60, 50, 7, 4, 60, 65, { 
         w: 16, h: 6, 
         color: PALETTE.deco_tech_glow, 
         label: '', 
         utility: 'none',
         pixelGlow: true
     }),
-    ...createGrid('monitor_r', 70, 50, 6, 4, 60, 65, { 
+    ...createGrid('monitor_r', 70, 50, 7, 4, 60, 65, { 
         w: 16, h: 6, 
         color: PALETTE.deco_tech_glow, 
         label: '', 
         utility: 'none',
         pixelGlow: true
     }),
-    ...createGrid('tech_chair', 65, 70, 6, 4, 60, 65, { 
+    ...createGrid('tech_chair', 65, 70, 7, 4, 60, 65, { 
         w: 22, h: 22, 
         color: '#8a9ca6', 
         label: '人体工学椅', 
-        utility: 'sit', 
+        utility: 'work', 
         dir: 'up',
         pixelPattern: 'chair_pixel'
     }),
@@ -610,8 +607,9 @@ export const FURNITURE: Furniture[] = [
     { id: 'mannequin_2', x: 950, y: 1350, w: 24, h: 24, color: '#ffdd59', label: '模特', utility: 'none', pixelPattern: 'mannequin' },
     { id: 'fitting_room', x: 1100, y: 1550, w: 44, h: 108, color: '#a8b4c8', label: '试衣间', utility: 'none', pixelPattern: 'fitting_room' },
 
-    { id: 'cashier_mall_1', x: 800, y: 1500, w: 60, h: 44, color: '#2c3e50', label: '服务台', utility: 'work', pixelPattern: 'cashier' },
-    { id: 'cashier_mall_2', x: 880, y: 1500, w: 60, h: 44, color: '#2c3e50', label: '服务台', utility: 'work', pixelPattern: 'cashier' },
+    // [优化] 服务台改为多人使用，防止员工没地方站
+    { id: 'cashier_mall_1', x: 800, y: 1500, w: 60, h: 44, color: '#2c3e50', label: '服务台', utility: 'work', multiUser: true, pixelPattern: 'cashier' },
+    { id: 'cashier_mall_2', x: 880, y: 1500, w: 60, h: 44, color: '#2c3e50', label: '服务台', utility: 'work', multiUser: true, pixelPattern: 'cashier' },
 
     ...createGrid('market_shelf_food', 620, 1600, 5, 1, 80, 40, { 
         w: 64, h: 28, 
@@ -636,7 +634,8 @@ export const FURNITURE: Furniture[] = [
     }),
 
     // Cinema - 像素影院风
-    { id: 'ticket_booth_work', x: 1350, y: 1280, w: 44, h: 44, color: '#ff5252', label: '影院服务台', utility: 'work', pixelPattern: 'ticket_booth' },
+    // [优化] 影院服务台允许多人工作
+    { id: 'ticket_booth_work', x: 1350, y: 1280, w: 44, h: 44, color: '#ff5252', label: '影院服务台', utility: 'work', multiUser: true, pixelPattern: 'ticket_booth' },
     { id: 'ticket_booth', x: 1250, y: 1280, w: 84, h: 44, color: '#ff5252', label: '售票处', utility: 'pay', pixelPattern: 'ticket_booth' },
     { id: 'popcorn_machine', x: 1500, y: 1280, w: 44, h: 44, color: '#ffd32a', label: '爆米花机', utility: 'buy_food', pixelPattern: 'popcorn_machine' },
     { id: 'claw_machine_1', x: 1450, y: 1280, w: 44, h: 44, color: '#ff7aa8', label: '抓娃娃机', utility: 'play', pixelPattern: 'claw_machine' },
@@ -661,8 +660,8 @@ export const FURNITURE: Furniture[] = [
     // 🏥 公共服务区 - 像素功能风
     // -----------------------------------------------------
     //餐厅
-    // 前台/接待 (服务员工作位)
-    { id: 'rest_reception', x: 1820, y: 520, w: 126, h: 44, color: '#e17055', label: '餐厅前台', utility: 'work', pixelPattern: 'reception' },
+    // 前台/接待 (服务员工作位) - [优化] 允许多人
+    { id: 'rest_reception', x: 1820, y: 520, w: 126, h: 44, color: '#e17055', label: '餐厅前台', utility: 'work', multiUser: true, pixelPattern: 'reception' },
     
     // 雅座 (顾客用餐 + 服务员工作覆盖区)
     ...createGrid('rest_table_2', 1720, 600, 3, 2, 120, 100, { 

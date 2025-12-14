@@ -431,14 +431,16 @@ export class Sim {
             } else if (this.job.companyType === 'business') {
                 searchLabels = this.job.level >= 4 ? ['红木班台'] : ['会议桌'];
             } else if (this.job.companyType === 'store') {
-                searchLabels = ['服务台', '影院服务台', '售票'];
-                searchCategories.push('pay');
+                // [关键修复] 移除 '售票' (对应 ticket_booth/pay)，只保留服务台 (work)
+                searchLabels = ['服务台', '影院服务台']; 
+                // searchCategories.push('pay'); // 移除 pay，防止员工去当顾客
             } else if (this.job.companyType === 'restaurant') {
                 if (this.job.title.includes('厨')) {
                     searchLabels = ['后厨'];
                 } else {
-                    searchLabels = ['餐厅前台', '雅座'];
-                    searchCategories.push('eat_out');
+                    // [关键修复] 移除 '雅座' (对应 eat_out/cost)，防止员工付费上班
+                    searchLabels = ['餐厅前台'];
+                    // searchCategories.push('eat_out'); // 移除 eat_out
                 }
             }
 
