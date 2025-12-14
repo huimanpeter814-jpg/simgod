@@ -4,7 +4,8 @@ import { GameStore } from './simulation';
 import { minutes, getJobCapacity } from './simulationHelpers';
 import { SocialLogic } from './logic/social';
 import { DecisionLogic } from './logic/decision';
-import { INTERACTIONS, RESTORE_TIMES } from './logic/interactionRegistry';
+// [修复1] 引入 InteractionHandler 类型以解决 TS 报错
+import { INTERACTIONS, RESTORE_TIMES, InteractionHandler } from './logic/interactionRegistry';
 
 export class Sim {
     id: string;
@@ -50,6 +51,8 @@ export class Sim {
     interactionTarget: any = null;
     bubble: { text: string | null; timer: number; type: string } = { text: null, timer: 0, type: 'normal' };
 
+    commuteTimer: number = 0;
+
     constructor(x?: number, y?: number) {
         this.id = Math.random().toString(36).substring(2, 11);
         this.pos = {
@@ -58,8 +61,7 @@ export class Sim {
         };
         this.prevPos = { ...this.pos }; 
         
-        // [修复 3] 提升移动速度
-        this.speed = (6.0 + Math.random() * 2.0) * 2.5;
+        this.speed = (5.0 + Math.random() * 2.0) * 2.0;
 
         this.gender = Math.random() > 0.5 ? 'M' : 'F';
         
@@ -307,9 +309,11 @@ export class Sim {
             this.updateBuffs(1);
         }
 
+        // 1. 优先检查日程
         this.checkSchedule();
         this.updateMood();
 
+        // 2. 状态消耗
         if (this.action !== 'sleeping') this.needs.energy -= BASE_DECAY.energy * this.metabolism.energy * f;
         if (this.action !== 'eating') this.needs.hunger -= BASE_DECAY.hunger * this.metabolism.hunger * f;
         if (this.action !== 'watching_movie') this.needs.fun -= BASE_DECAY.fun * this.metabolism.fun * f;
@@ -319,27 +323,35 @@ export class Sim {
 
         const getRate = (mins: number) => (100 / (mins * 60)) * dt;
 
+        // 3. 动作恢复逻辑
         if (this.action === 'talking') {
             this.needs.social += getRate(RESTORE_TIMES.social);
         }
-        else if (this.action === 'phone') {
-            this.needs.fun += getRate(180);
-            this.needs.social += getRate(240);
-        }
         else if (this.action === 'commuting') {
-            // commuting logic handled in movement block
+            // 通勤中，增加计时器，防止卡死
+            this.commuteTimer += dt;
+            // 如果通勤超过 1200 ticks (约20游戏分钟/秒)，强制瞬移
+            if (this.commuteTimer > 1200 && this.target) {
+                this.pos = { ...this.target };
+                this.startInteraction();
+            }
         }
         else if (this.interactionTarget) {
             const obj = this.interactionTarget;
             
-            if (!obj.utility) {
-                if (this.action === 'using') {
-                    this.reset();
-                }
+            // [修复2] 增加对 'human' 类型目标的保护检查，防止读取 undefined utility 导致崩溃
+            if (obj.type === 'human' || !obj.utility) {
+                // 如果是人类目标，通常 action 应该是 'talking'，会被上面的 if 捕获。
+                // 如果落到这里，说明状态异常（比如 idle 但 target 是人），安全起见不做处理或重置。
+            } 
+            // 处理 'work' 类型的特殊逻辑
+            else if (obj.utility === 'work') {
+                if (this.action !== 'working') this.action = 'working';
             } else {
                 let handler = INTERACTIONS[obj.utility];
                 if (!handler) {
-                     const prefixKey = Object.keys(INTERACTIONS).find(k => k.endsWith('_') && obj.utility.startsWith(k));
+                     // 确保 obj.utility 存在再调用 startsWith
+                     const prefixKey = Object.keys(INTERACTIONS).find(k => k.endsWith('_') && obj.utility && obj.utility.startsWith(k));
                      if (prefixKey) handler = INTERACTIONS[prefixKey];
                 }
                 if (!handler) handler = INTERACTIONS['default'];
@@ -350,47 +362,63 @@ export class Sim {
             }
         }
 
+        // 4. 需求限制
         for (let k in this.needs) this.needs[k] = Math.max(0, Math.min(100, this.needs[k]));
 
-        if (this.action === 'sleeping' && this.needs.energy >= 100) this.finishAction();
-        else if (this.action === 'eating' && this.actionTimer <= 0) this.finishAction();
-        else if (this.action === 'using' && this.interactionTarget) {
-             if (this.interactionTarget.utility) {
-                 const u = this.interactionTarget.utility;
-                 if (['bladder', 'hygiene', 'energy'].includes(u) && this.needs[u] >= 100) this.finishAction();
-             }
-        }
-
+        // 5. 动作完成检查
         if (this.actionTimer > 0) {
             this.actionTimer -= dt;
             if (this.actionTimer <= 0) this.finishAction();
-        } else if (!this.target) {
-            if (this.action === 'moving') this.action = 'idle';
-            DecisionLogic.decideAction(this);
+        } 
+        else if (!this.target) {
+            // [核心逻辑] 只有非工作状态才允许自主决策
+            const currentHour = GameStore.time.hour;
+            const isWorkDay = this.job.workDays.includes(GameStore.time.weekday);
+            const isWorkTime = this.job.id !== 'unemployed' && isWorkDay && 
+                               currentHour >= this.job.startHour && currentHour < this.job.endHour;
+
+            if (isWorkTime) {
+                // 如果是工作时间，且现在没在通勤也没在工作（比如刚 finishAction 变成 idle），
+                // 这里的 else 分支什么都不做，完全交给 checkSchedule 在下一帧接管
+            } else {
+                // 只有非工作时间，或者自由职业，才允许乱跑
+                if (this.action !== 'commuting' && this.action !== 'working') {
+                    if (this.action === 'moving') this.action = 'idle';
+                    DecisionLogic.decideAction(this);
+                }
+            }
         }
 
+        // 6. 移动逻辑
         if (this.target) {
-            const dist = Math.sqrt(Math.pow(this.pos.x - this.target.x, 2) + Math.pow(this.pos.y - this.target.y, 2));
-            if (dist < 8) {
-                this.pos = this.target;
+            const dx = this.target.x - this.pos.x;
+            const dy = this.target.y - this.pos.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            
+            let speedMod = 1.0;
+            if (this.mood > 90) speedMod = 1.3;
+            if (this.mood < 30) speedMod = 0.7;
+            
+            const moveStep = this.speed * speedMod * (dt * 0.1);
+
+            // [超级宽松的到达判定]
+            if (dist <= 10 || dist <= moveStep + 2) {
+                this.pos = { ...this.target }; // 强制吸附
                 this.target = null;
+                this.commuteTimer = 0; // 重置卡死计时器
                 this.startInteraction();
             } else {
-                const dx = this.target.x - this.pos.x;
-                const dy = this.target.y - this.pos.y;
                 const angle = Math.atan2(dy, dx);
-                let speedMod = 1.0;
-                if (this.mood > 90) speedMod = 1.3;
-                if (this.mood < 30) speedMod = 0.7;
-                
-                let nextX = this.pos.x + Math.cos(angle) * this.speed * speedMod * (dt * 0.1);
-                let nextY = this.pos.y + Math.sin(angle) * this.speed * speedMod * (dt * 0.1);
+                let nextX = this.pos.x + Math.cos(angle) * moveStep;
+                let nextY = this.pos.y + Math.sin(angle) * moveStep;
+
                 nextX = Math.max(10, Math.min(CONFIG.CANVAS_W - 10, nextX));
                 nextY = Math.max(10, Math.min(CONFIG.CANVAS_H - 10, nextY));
+                
                 this.pos.x = nextX;
                 this.pos.y = nextY;
                 
-                // [修复 2] 如果是通勤状态，不要将其覆盖为普通的 moving，防止 checkSchedule 再次触发
+                // 只有在非通勤状态才设为 moving，避免覆盖 commuting 状态
                 if (this.action !== 'commuting') {
                     this.action = 'moving';
                 }
@@ -400,28 +428,31 @@ export class Sim {
     }
 
     checkSchedule() {
-        // 1. 基础检查
         if (this.job.id === 'unemployed') return;
 
         const isHoliday = HOLIDAYS.some(h => h.month === GameStore.time.month && h.day === GameStore.time.date);
         const isWorkDay = this.job.workDays.includes(GameStore.time.weekday);
 
+        // 如果是节假日或非工作日，直接返回
         if (isHoliday || !isWorkDay) return;
 
         const currentHour = GameStore.time.hour;
         const isWorkTime = currentHour >= this.job.startHour && currentHour < this.job.endHour;
 
-        // 2. 上班逻辑
-        if (isWorkTime && this.action !== 'working' && this.action !== 'commuting') {
+        // === 上班逻辑 ===
+        if (isWorkTime) {
+            // 1. 如果已经在工作，不做任何事
+            if (this.action === 'working') return;
+            // 2. 如果已经在去上班的路上，且目标正确，不做任何事
+            if (this.action === 'commuting' && this.interactionTarget?.utility === 'work') return;
             
-            // [🔥核心修复 1] 必须强制重置“赚外快”标记！
-            // 否则带着这个标记去坐班，交互逻辑会误判为“使用中(using)”而不是“工作中(working)”，导致死循环。
+            // 3. 否则，强制开始上班流程
             this.isSideHustle = false; 
 
+            // 寻找工位逻辑
             let searchLabels: string[] = [];
             let searchCategories: string[] = ['work', 'work_group']; 
 
-            // === 职业工位匹配 ===
             if (this.job.companyType === 'internet') {
                 searchLabels = this.job.level >= 4 ? ['老板椅'] : ['码农工位', '控制台'];
             } else if (this.job.companyType === 'design') {
@@ -441,54 +472,51 @@ export class Sim {
                 searchLabels = ['管理员'];
             }
 
-            // 查找家具
             let candidateFurniture: Furniture[] = [];
             searchCategories.forEach(cat => {
                 const list = GameStore.furnitureIndex.get(cat);
                 if (list) candidateFurniture = candidateFurniture.concat(list);
             });
 
-            const desk = candidateFurniture.find(f =>
-                searchLabels.some(l => f.label.includes(l)) &&
-                (!f.reserved || f.reserved === this.id) &&
-                (f.multiUser || !GameStore.sims.some(s => s.id !== this.id && s.interactionTarget?.id === f.id))
+            const validDesks = candidateFurniture.filter(f =>
+                searchLabels.some(l => f.label.includes(l))
             );
 
-            if (desk) {
+            if (validDesks.length > 0) {
+                const desk = validDesks[Math.floor(Math.random() * validDesks.length)];
+                
                 let targetX = desk.x + desk.w / 2;
                 let targetY = desk.y + desk.h / 2;
-                if (desk.multiUser) {
-                    targetX += (Math.random() - 0.5) * (desk.w * 0.6);
-                    targetY += (Math.random() - 0.5) * (desk.h * 0.6);
-                }
+                
+                targetX += (Math.random() - 0.5) * 15;
+                targetY += (Math.random() - 0.5) * 15;
 
                 this.target = { x: targetX, y: targetY };
-                
-                // [核心修复 2] 强制覆写 utility 为 'work'
+                // [关键] 强制覆写 utility 为 work
                 this.interactionTarget = { ...desk, utility: 'work' };
-                
                 this.action = 'commuting';
-                this.actionTimer = 0;
+                this.actionTimer = 0; 
+                this.commuteTimer = 0;
                 this.say("去上班 💼", 'act');
             } else {
-                // [核心修复 3] 兜底逻辑
                 const randomSpot = { x: 100 + Math.random()*200, y: 100 + Math.random()*200 };
                 this.target = randomSpot;
-                this.action = 'commuting';
-                this.actionTimer = 0;
-                
                 this.interactionTarget = {
                     id: `virtual_work_${this.id}`,
                     utility: 'work',
                     label: '站立办公',
                     type: 'virtual'
                 };
-                
-                this.say("没位置了...站着干", 'bad');
+                this.action = 'commuting';
+                this.actionTimer = 0;
+                this.commuteTimer = 0;
+                this.say("站着上班 💼", 'bad');
             }
         } 
-        // 3. 下班逻辑
+        // === 下班逻辑 ===
         else if (!isWorkTime && (this.action === 'working' || this.action === 'commuting')) {
+             if (this.action === 'commuting' && this.interactionTarget?.utility !== 'work') return;
+
             this.action = 'idle';
             this.target = null;
             this.interactionTarget = null;
@@ -497,16 +525,8 @@ export class Sim {
             this.say(`下班! +$${this.job.salary}`, 'money');
             this.addBuff(BUFFS.stressed);
 
-            // 结算与升职
             let dailyPerf = 5; 
             if (this.job.companyType === 'internet' && this.skills.logic > 50) dailyPerf += 5;
-            if (this.job.companyType === 'design' && this.skills.creativity > 50) dailyPerf += 5;
-            if (this.job.companyType === 'business' && this.skills.logic > 30) dailyPerf += 3;
-            if (this.mood > 80) dailyPerf += 3;
-            if (this.hasBuff('well_rested')) dailyPerf += 3;
-            if (this.needs.fun < 30) dailyPerf -= 5;
-            this.workPerformance += dailyPerf;
-
             if (this.workPerformance > 500 && this.job.level < 4) {
                 this.promote();
                 this.workPerformance = 100;
@@ -530,28 +550,15 @@ export class Sim {
             this.addBuff(BUFFS.promoted);
         } else {
             const victim = currentHolders.sort((a, b) => a.workPerformance - b.workPerformance)[0];
-            
-            let myScore = this.workPerformance + this.mood;
-            if (this.job.companyType === 'internet') myScore += this.skills.logic * 2;
-            else if (this.job.companyType === 'design') myScore += this.skills.creativity * 2;
-            else myScore += this.skills.logic + this.skills.athletics; 
-            
-            let vScore = victim.workPerformance + victim.mood;
-            if (victim.job.companyType === 'internet') vScore += victim.skills.logic * 2;
-            else if (victim.job.companyType === 'design') vScore += victim.skills.creativity * 2;
-            else vScore += victim.skills.logic + victim.skills.athletics;
-
-            if (myScore > vScore) {
+            if (this.workPerformance + this.mood > victim.workPerformance + victim.mood) {
                 const oldJob = this.job;
                 this.job = nextLevel;
                 victim.job = oldJob; 
                 victim.workPerformance = 0; 
-                
                 this.money += 1000;
                 this.dailyIncome += 1000;
                 this.addBuff(BUFFS.promoted);
                 victim.addBuff(BUFFS.demoted);
-                
                 GameStore.addLog(this, `PK 成功！取代了 ${victim.name} 成为 ${nextLevel.title}`, 'sys');
                 this.say("我赢了! 👑", 'act');
                 victim.say("可恶... 😭", 'bad');
@@ -645,12 +652,16 @@ export class Sim {
                 this.say(`买! -${obj.cost}`, 'money');
             }
 
-            let handler = INTERACTIONS[obj.utility];
-            if (!handler) {
-                 const prefixKey = Object.keys(INTERACTIONS).find(k => k.endsWith('_') && obj.utility.startsWith(k));
-                 if (prefixKey) handler = INTERACTIONS[prefixKey];
+            // [修复1] 显式类型声明 InteractionHandler | null
+            let handler: InteractionHandler | null = null;
+            if (INTERACTIONS && obj.utility) {
+                handler = INTERACTIONS[obj.utility];
+                if (!handler) {
+                     const prefixKey = Object.keys(INTERACTIONS).find(k => k.endsWith('_') && obj.utility.startsWith(k));
+                     if (prefixKey) handler = INTERACTIONS[prefixKey];
+                }
+                if (!handler) handler = INTERACTIONS['default'];
             }
-            if (!handler) handler = INTERACTIONS['default'];
 
             if (handler && handler.onStart) {
                 const success = handler.onStart(this, obj);
@@ -692,6 +703,7 @@ export class Sim {
         this.action = 'idle';
         this.actionTimer = 0;
         this.isSideHustle = false;
+        this.commuteTimer = 0;
     }
 
     finishAction() {

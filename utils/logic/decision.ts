@@ -30,7 +30,8 @@ export const DecisionLogic = {
             { id: 'social', score: (100 - sim.needs.social) * 1.5, type: 'social' }
         ];
 
-        // [新增] 无业游民的赚钱动力 (Side Hustle)
+        // [核心逻辑] 只有无业游民(自由职业)才会尝试赚钱 (Side Hustle)
+        // 避免上班族在下班时间去抢电脑赚外快，上班族依靠薪水生活
         if (sim.job.id === 'unemployed') {
             let moneyDesire = 0;
             if (sim.money < 500) moneyDesire = 200; 
@@ -59,12 +60,12 @@ export const DecisionLogic = {
             scores.push({ id: 'gym_run', score: 60, type: 'obj' });
         }
         
-        // [New] 艺术爱好者加分 (去美术馆)
+        // 艺术爱好者加分 (去美术馆)
         if (sim.needs.fun < 70 && (sim.mbti.includes('N') || sim.skills.creativity > 20)) {
              scores.push({ id: 'art', score: 85, type: 'obj' });
         }
         
-        // [New] 孩子气或心情不好加分 (去游乐场)
+        // 孩子气或心情不好加分 (去游乐场)
         if (sim.needs.fun < 60 && (sim.mbti.includes('P') || sim.mood < 40)) {
             scores.push({ id: 'play', score: 80, type: 'obj' });
         }
@@ -90,8 +91,6 @@ export const DecisionLogic = {
     },
 
     findSideHustle(sim: Sim) {
-        // [优化] 这里的 filter 可以考虑进一步优化，但目前数量级较小，先保持
-        // 如果要极致优化，可以在 GameStore 中维护一个 'pc' 或 'computer' 的辅助索引
         let options: { type: string; target: Furniture }[] = [];
 
         // 1. Coding/Writing (Need PC)
@@ -112,18 +111,15 @@ export const DecisionLogic = {
             let best = options[Math.floor(Math.random() * options.length)];
             sim.target = { x: best.target.x + best.target.w / 2, y: best.target.y + best.target.h / 2 };
             sim.interactionTarget = best.target;
-            sim.isSideHustle = true;
+            sim.isSideHustle = true; // 标记为赚外快，InteractionRegistry 会据此发放收益
         } else {
             DecisionLogic.wander(sim);
         }
     },
 
-    // [优化] 使用 GameStore.furnitureIndex 替代 filter 遍历
     findObject(sim: Sim, type: string) {
         let utility = type;
 
-        // 映射抽象需求到具体 utility
-        // 注意：'fun' 等复合需求需要特殊处理
         const simpleMap: Record<string, string> = {
              hunger: 'hunger', bladder: 'bladder', hygiene: 'hygiene',
              cooking: 'cooking', gardening: 'gardening', fishing: 'fishing',
@@ -134,9 +130,7 @@ export const DecisionLogic = {
 
         let candidates: Furniture[] = [];
 
-        // 1. 获取候选列表 (O(1) 复杂度)
         if (type === 'fun') {
-            // 聚合多种娱乐设施
             const funTypes = ['fun', 'cinema_2d', 'cinema_3d', 'cinema_imax', 'art', 'play', 'fishing'];
             if (sim.needs.energy < 70) funTypes.push('comfort');
             
@@ -145,32 +139,24 @@ export const DecisionLogic = {
                 if (list) candidates = candidates.concat(list);
             });
         } else if (type === 'energy') {
-             // 能量可以是床(energy)或沙发(comfort)
              const beds = GameStore.furnitureIndex.get('energy') || [];
              candidates = candidates.concat(beds);
-             // 如果很累了，也可以睡沙发
              if (sim.needs.energy < 30) {
                  const sofas = GameStore.furnitureIndex.get('comfort') || [];
                  candidates = candidates.concat(sofas);
              }
         } else if (type === 'hunger') {
-            // 饥饿 = 冰箱(hunger) + 餐厅(eat_out) + 售货机(buy_drink)
             candidates = candidates.concat(GameStore.furnitureIndex.get('hunger') || []);
             candidates = candidates.concat(GameStore.furnitureIndex.get('eat_out') || []);
             candidates = candidates.concat(GameStore.furnitureIndex.get('buy_drink') || []);
         } else {
-            // 直接查找
             candidates = GameStore.furnitureIndex.get(utility) || [];
         }
 
-        // 2. 过滤不可用项 (数量级已大幅减少)
         if (candidates.length) {
             candidates = candidates.filter((f: Furniture)=> {
-                 // 钱够不够
                  if (f.cost && f.cost > sim.money) return false;
-                 // 私有保留
                  if (f.reserved && f.reserved !== sim.id) return false;
-                 // 占用检查 (如果是单人设施)
                  if (!f.multiUser) {
                      const isOccupied = GameStore.sims.some(s => s.id !== sim.id && s.interactionTarget?.id === f.id);
                      if (isOccupied) return false;
@@ -179,7 +165,6 @@ export const DecisionLogic = {
             });
 
             if (candidates.length) {
-                // 优先选择最近的 (Sorting small list is fine)
                 candidates.sort((a: Furniture, b: Furniture) => {
                     const distA = Math.pow(a.x - sim.pos.x, 2) + Math.pow(a.y - sim.pos.y, 2);
                     const distB = Math.pow(b.x - sim.pos.x, 2) + Math.pow(b.y - sim.pos.y, 2);
@@ -230,6 +215,6 @@ export const DecisionLogic = {
             y: minY + Math.random() * (maxY - minY) 
         };
         sim.action = 'wandering';
-        sim.actionTimer = minutes(30);
+        sim.actionTimer = minutes(0);
     }
 };

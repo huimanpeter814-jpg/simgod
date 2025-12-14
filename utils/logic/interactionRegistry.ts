@@ -147,16 +147,18 @@ export const INTERACTIONS: Record<string, InteractionHandler> = {
 
    'work': {
     verb: '工作 💻', 
-    duration: 480, // 基础时长，会被 getDuration 覆盖
+    duration: 480, 
     getDuration: (sim) => sim.isSideHustle ? 180 : 480,
     getVerb: (sim) => sim.isSideHustle ? '接单赚外快 💻' : '工作 💻',
     
-    // [关键修复] 必须显式设置 action 为 'working'，否则 checkSchedule 会认为没在上班
+    // [关键修复] 必须显式设置 action 为 'working'
+    // 如果这里不设置，Sim 默认会变成 'using'，
+    // checkSchedule 就会认为还没开始工作，从而再次强制该市民去上班。
     onStart: (sim, obj) => {
         if (sim.isSideHustle) {
-            sim.action = 'using'; // 赚外快算作普通使用
+            sim.action = 'using'; 
         } else {
-            sim.action = 'working'; // 正式工作必须是 working 状态！
+            sim.action = 'working'; // <--- 确保这一行存在
         }
         return true;
     },
