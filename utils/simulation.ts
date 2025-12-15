@@ -1,6 +1,8 @@
-import { PALETTES, HOLIDAYS, BUFFS, JOBS, FURNITURE } from '../constants';
+import { PALETTES, HOLIDAYS, BUFFS, JOBS, FURNITURE, CONFIG } from '../constants'; // 确保导入 CONFIG
 import { LogEntry, GameTime, Job, Furniture } from '../types';
 import { Sim } from './Sim';
+import { SpatialHashGrid } from './spatialHash';
+import { PathFinder } from './pathfinding'; // [新增]
 
 export { Sim } from './Sim';
 export { drawAvatarHead, minutes, getJobCapacity } from './simulationHelpers';
@@ -14,8 +16,12 @@ export class GameStore {
     static selectedSimId: string | null = null;
     static listeners: (() => void)[] = [];
 
-    // [优化] 家具索引 Map，用于 O(1) 查找
+    // 索引系统
     static furnitureIndex: Map<string, Furniture[]> = new Map();
+    static worldGrid: SpatialHashGrid = new SpatialHashGrid(100);
+    
+    // [新增] 寻路网格实例
+    static pathFinder: PathFinder = new PathFinder(CONFIG.CANVAS_W, CONFIG.CANVAS_H, 20);
 
     static subscribe(cb: () => void) {
         this.listeners.push(cb);
@@ -26,16 +32,50 @@ export class GameStore {
         this.listeners.forEach(cb => cb());
     }
 
-    // [关键] 初始化家具索引
     static initIndex() {
         this.furnitureIndex.clear();
+        this.worldGrid.clear();
+        this.pathFinder.clear(); // [新增] 清空旧路径数据
+
+        // [新增] 注册障碍物
+        // 我们可以根据家具类型决定是否阻挡。目前假设所有家具都阻挡。
+        // 可以排除地毯 (rug) 等
+        const passableTypes = ['rug_fancy', 'rug_persian', 'rug_art', 'pave_fancy', 'stripes', 'zebra', 'manhole'];
+
         FURNITURE.forEach(f => {
+            // 1. 类型索引
             if (!this.furnitureIndex.has(f.utility)) {
                 this.furnitureIndex.set(f.utility, []);
             }
             this.furnitureIndex.get(f.utility)!.push(f);
+
+            // 2. 空间索引 (用于点击检测)
+            this.worldGrid.insert({
+                id: f.id,
+                x: f.x,
+                y: f.y,
+                w: f.w,
+                h: f.h,
+                type: 'furniture',
+                ref: f
+            });
+
+            // 3. [新增] 寻路阻挡注册
+            // 稍微缩小一点阻挡范围 (padding)，让路更宽一点，避免卡在狭窄通道
+            const padding = 4;
+            const isPassable = f.pixelPattern && passableTypes.some(t => f.pixelPattern?.includes(t));
+            
+            if (!isPassable) {
+                this.pathFinder.setObstacle(
+                    f.x + padding, 
+                    f.y + padding, 
+                    Math.max(1, f.w - padding * 2), 
+                    Math.max(1, f.h - padding * 2)
+                );
+            }
         });
-        console.log(`[System] Furniture Index Built. Categories: ${this.furnitureIndex.size}`);
+        
+        console.log(`[System] Indexes Built. PathFinder ready (${this.pathFinder.cols}x${this.pathFinder.rows}).`);
     }
 
     static spawnHeart(x: number, y: number) {
@@ -66,17 +106,20 @@ export class GameStore {
     static saveGame() {
         const safeSims = this.sims.map(sim => {
             const s = Object.assign({}, sim);
+            // 序列化时清除临时状态
             if (s.interactionTarget && (s.interactionTarget as any).ref) {
                 s.interactionTarget = null;
                 s.action = 'idle';
                 s.target = null;
+                // @ts-ignore
+                s.path = []; // 清除路径
                 s.bubble = { text: null, timer: 0, type: 'normal' };
             }
             return s;
         });
 
         const saveData = {
-            version: 2.0, 
+            version: 2.1, 
             time: this.time,
             logs: this.logs,
             sims: safeSims
@@ -110,6 +153,9 @@ export class GameStore {
                 
                 sim.interactionTarget = null;
                 sim.target = null;
+                // @ts-ignore
+                sim.path = []; // 重置路径
+                
                 if (sim.action !== 'sleeping') {
                     sim.action = 'idle';
                 }
@@ -160,15 +206,12 @@ export function updateTime() {
 
     GameStore.timeAccumulator += GameStore.time.speed;
     
-    // 当累积到 1 分钟时
     if (GameStore.timeAccumulator >= 60) {
         GameStore.timeAccumulator = 0;
         GameStore.time.minute++;
 
-        // 这里的 true 表示分钟改变了，通知 Sim 更新 Buff 等
         GameStore.sims.forEach(s => s.update(0, true));
 
-        // [修复] 先处理进位逻辑，再通知 UI，防止 UI 显示 "60" 分
         if (GameStore.time.minute >= 60) {
             GameStore.time.minute = 0;
             GameStore.time.hour++;
@@ -188,7 +231,6 @@ export function updateTime() {
                     if (GameStore.time.month > 12) GameStore.time.month = 1;
                 }
 
-                // 每日结算
                 let dailyLog = `Day ${GameStore.time.day} | ${GameStore.time.month}月${GameStore.time.date}日`;
                 GameStore.addLog(null, dailyLog, 'sys');
 
@@ -210,7 +252,6 @@ export function updateTime() {
             }
         }
         
-        // [修复] 所有的状态变更（包括进位）完成后，再通知 UI 渲染
         GameStore.notify();
     }
 }

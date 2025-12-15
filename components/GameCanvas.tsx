@@ -24,7 +24,7 @@ const createWorker = () => {
 };
 
 // ==========================================
-// 🎨 像素艺术渲染核心 (完整找回版)
+// 🎨 像素艺术绘制辅助 (用于静态层绘制)
 // ==========================================
 const drawPixelProp = (ctx: CanvasRenderingContext2D, f: any, p: any) => {
     const { x, y, w, h, color, pixelPattern } = f;
@@ -312,7 +312,7 @@ const drawPixelProp = (ctx: CanvasRenderingContext2D, f: any, p: any) => {
     }
 };
 
-// Lerp 辅助函数
+// Lerp Helper
 const lerp = (start: number, end: number, factor: number) => {
     return start + (end - start) * factor;
 };
@@ -323,39 +323,39 @@ const GameCanvas: React.FC = () => {
 
     const cameraRef = useRef({ x: 0, y: 0 });
 
-    // [新增] 镜头锁定控制
+    // 镜头锁定控制
     const isCameraLocked = useRef(false); 
-    // [新增] 记录上一帧选中的ID，用于检测是否刚刚切换了人
     const lastSelectedId = useRef<string | null>(null);
 
     const isDragging = useRef(false);
     const lastMousePos = useRef({ x: 0, y: 0 });
     const hasDragged = useRef(false);
 
-    const draw = (ctx: CanvasRenderingContext2D) => {
-        // 关闭平滑处理以保持像素锐利
-        ctx.imageSmoothingEnabled = false;
+    // [优化] 静态层 Canvas 缓存
+    const staticCanvasRef = useRef<HTMLCanvasElement | null>(null);
+    // 记录上一帧的时间段，用于判断是否需要重绘静态层
+    const lastTimePaletteRef = useRef<string>('');
 
-        // 1. 清屏
-        ctx.fillStyle = '#121212';
-        ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+    // ==========================================
+    // 🖼️ 静态层绘制逻辑 (只绘制一次或当光照变化时绘制)
+    // ==========================================
+    const renderStaticLayer = () => {
+        if (!staticCanvasRef.current) {
+            staticCanvasRef.current = document.createElement('canvas');
+            staticCanvasRef.current.width = CONFIG.CANVAS_W;
+            staticCanvasRef.current.height = CONFIG.CANVAS_H;
+        }
 
-        // --- 应用摄像机变换 ---
-        ctx.save();
-        const camX = Math.floor(cameraRef.current.x);
-        const camY = Math.floor(cameraRef.current.y);
-        ctx.translate(-camX, -camY);
-
-        const mouseWorldX = lastMousePos.current.x + camX;
-        const mouseWorldY = lastMousePos.current.y + camY;
+        const ctx = staticCanvasRef.current.getContext('2d');
+        if (!ctx) return;
 
         const p = getActivePalette();
-
-        // 2. 绘制世界背景
+        
+        // 1. 绘制世界背景
         ctx.fillStyle = p.bg;
         ctx.fillRect(0, 0, CONFIG.CANVAS_W, CONFIG.CANVAS_H);
 
-        // 3. 绘制房间/区域
+        // 2. 绘制房间/区域
         ROOMS.forEach((r: any) => {
             // 外部阴影
             ctx.fillStyle = 'rgba(0,0,0,0.2)';
@@ -396,7 +396,7 @@ const GameCanvas: React.FC = () => {
             }
         });
 
-        // 4. 绘制家具
+        // 3. 绘制家具
         FURNITURE.forEach((f: any) => {
             if (f.pixelPattern !== 'zebra') {
                 ctx.fillStyle = p.furniture_shadow || 'rgba(0,0,0,0.2)';
@@ -416,27 +416,65 @@ const GameCanvas: React.FC = () => {
                     ctx.shadowBlur = 0;
                 }
             }
-
-            // Tooltip
-            const dist = Math.sqrt(Math.pow(mouseWorldX - (f.x + f.w / 2), 2) + Math.pow(mouseWorldY - (f.y + f.h / 2), 2));
-            if (dist < 40) {
-                const textWidth = ctx.measureText(f.label).width;
-                ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
-                ctx.strokeStyle = '#fff';
-                ctx.lineWidth = 1;
-                ctx.beginPath();
-                ctx.roundRect(f.x + f.w/2 - textWidth/2 - 4, f.y - 20, textWidth + 8, 16, 2);
-                ctx.fill();
-                ctx.stroke();
-                ctx.fillStyle = '#fff';
-                ctx.textAlign = 'center';
-                ctx.font = '10px "Microsoft YaHei", sans-serif';
-                ctx.fillText(f.label, f.x + f.w/2, f.y - 9);
-                ctx.textAlign = 'left';
-            }
         });
 
-        // 5. 绘制角色
+        console.log("[Canvas] Static Layer Updated");
+    };
+
+    // ==========================================
+    // 🎭 主渲染循环 (动态层)
+    // ==========================================
+    const draw = (ctx: CanvasRenderingContext2D) => {
+        // 关闭平滑处理以保持像素锐利
+        ctx.imageSmoothingEnabled = false;
+
+        // 1. 清空视口
+        ctx.fillStyle = '#121212';
+        ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+
+        // --- 应用摄像机变换 ---
+        ctx.save();
+        const camX = Math.floor(cameraRef.current.x);
+        const camY = Math.floor(cameraRef.current.y);
+        ctx.translate(-camX, -camY);
+
+        const mouseWorldX = lastMousePos.current.x + camX;
+        const mouseWorldY = lastMousePos.current.y + camY;
+        
+        // 2. 检测环境光变化，决定是否重绘静态层
+        const p = getActivePalette();
+        const paletteKey = JSON.stringify(p); // 简单比较引用或内容
+        if (paletteKey !== lastTimePaletteRef.current || !staticCanvasRef.current) {
+            renderStaticLayer();
+            lastTimePaletteRef.current = paletteKey;
+        }
+
+        // 3. 绘制静态背景层 (Copy Image) - 极快!
+        if (staticCanvasRef.current) {
+            ctx.drawImage(staticCanvasRef.current, 0, 0);
+        }
+
+        // 4. [优化] 鼠标悬停检测 (Furniture Tooltip)
+        // 使用空间网格查询，而不是遍历所有家具
+        const hoveredItem = GameStore.worldGrid.queryHit(mouseWorldX, mouseWorldY);
+        if (hoveredItem && hoveredItem.type === 'furniture') {
+            const f = hoveredItem.ref;
+            const textWidth = ctx.measureText(f.label).width;
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+            ctx.strokeStyle = '#fff';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.roundRect(f.x + f.w/2 - textWidth/2 - 4, f.y - 20, textWidth + 8, 16, 2);
+            ctx.fill();
+            ctx.stroke();
+            ctx.fillStyle = '#fff';
+            ctx.textAlign = 'center';
+            ctx.font = '10px "Microsoft YaHei", sans-serif';
+            ctx.fillText(f.label, f.x + f.w/2, f.y - 9);
+            ctx.textAlign = 'left';
+        }
+
+        // 5. 绘制角色 (Sims)
         const renderSims = [...GameStore.sims].sort((a, b) => a.pos.y - b.pos.y);
         renderSims.forEach(sim => {
             const renderX = sim.pos.x; 
@@ -520,7 +558,7 @@ const GameCanvas: React.FC = () => {
             ctx.restore();
         });
 
-        // 粒子
+        // 6. 粒子
         for (let i = GameStore.particles.length - 1; i >= 0; i--) {
             let p = GameStore.particles[i];
             p.y -= 0.6; p.life -= 0.015;
@@ -538,8 +576,7 @@ const GameCanvas: React.FC = () => {
 
     // 🎨 渲染循环
     const renderLoop = (timestamp: number) => {
-        // [新增逻辑] 自动判断是否需要锁定镜头
-        // 如果当前选中的人跟上一帧不一样，说明用户刚点击了新人 -> 锁定
+        // 自动判断是否需要锁定镜头
         if (GameStore.selectedSimId !== lastSelectedId.current) {
             lastSelectedId.current = GameStore.selectedSimId;
             if (GameStore.selectedSimId) {
@@ -547,8 +584,7 @@ const GameCanvas: React.FC = () => {
             }
         }
 
-        // [修复逻辑] 镜头跟随
-        // 只有在 (有选中市民) && (镜头锁定中) && (没在拖拽) 时才跟随
+        // 镜头跟随逻辑
         if (GameStore.selectedSimId && isCameraLocked.current && !isDragging.current) {
             const selectedSim = GameStore.sims.find(s => s.id === GameStore.selectedSimId);
             if (selectedSim) {
@@ -573,6 +609,10 @@ const GameCanvas: React.FC = () => {
         worker.onmessage = (e) => { if (e.data === 'tick') gameLoopStep(); };
         worker.postMessage('start');
         requestRef.current = requestAnimationFrame(renderLoop);
+        
+        // 初始渲染一次静态层
+        renderStaticLayer();
+
         return () => {
             worker.postMessage('stop'); worker.terminate();
             if (requestRef.current) cancelAnimationFrame(requestRef.current);
@@ -593,7 +633,7 @@ const GameCanvas: React.FC = () => {
         if (isDragging.current) {
             if (Math.abs(e.movementX) > 0 || Math.abs(e.movementY) > 0) {
                 hasDragged.current = true;
-                // [关键修复] 一旦开始拖拽，立刻解除镜头锁定，但不取消选中状态
+                // 一旦开始拖拽，解除镜头锁定，但不取消选中状态
                 isCameraLocked.current = false; 
             }
             cameraRef.current.x -= e.movementX;
@@ -613,25 +653,31 @@ const GameCanvas: React.FC = () => {
             const worldX = mouseX + cameraRef.current.x;
             const worldY = mouseY + cameraRef.current.y;
 
-            let hit: string | null = null;
-            // 碰撞检测范围
+            // [优化] 点击检测
+            // 1. 优先检测 Sims (动态，遍历检测)
+            let hitSim: string | null = null; // Fix: 显式类型声明
+            // 倒序遍历，因为绘制是顺序的（下面的覆盖上面的），所以点击应该先检测上面的
             for (let i = GameStore.sims.length - 1; i >= 0; i--) {
                 let s = GameStore.sims[i];
                 if (Math.abs(worldX - s.pos.x) < 40 && Math.abs(worldY - (s.pos.y - 20)) < 50) {
-                    hit = s.id; break;
+                    hitSim = s.id; break;
                 }
             }
             
-            if (hit) {
+            if (hitSim) {
                 // 如果点的是同一个人，说明用户想重新聚焦
-                if (GameStore.selectedSimId === hit) {
+                if (GameStore.selectedSimId === hitSim) {
                     isCameraLocked.current = true; // 手动重新锁定
                 } else {
-                    GameStore.selectedSimId = hit; // 切换新人，renderLoop 会自动处理锁定
+                    GameStore.selectedSimId = hitSim; // 切换新人，renderLoop 会自动处理锁定
                 }
             } else {
-                // 点了空地，取消选中
-                 GameStore.selectedSimId = null; 
+                // 2. 如果没点到 Sim，检测家具 (使用空间网格加速)
+                // (当前逻辑是点空地取消选中，如果未来想选中家具，可以在这里处理)
+                // const hitFurniture = GameStore.worldGrid.queryHit(worldX, worldY);
+                // if (hitFurniture) console.log("Clicked furniture:", hitFurniture.ref.label);
+                
+                GameStore.selectedSimId = null; 
             }
             GameStore.notify();
         }

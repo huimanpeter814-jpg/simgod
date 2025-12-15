@@ -1,6 +1,6 @@
 ﻿import { CONFIG, BASE_DECAY, LIFE_GOALS, MBTI_TYPES, SURNAMES, GIVEN_NAMES, ZODIACS, JOBS, ITEMS, BUFFS, ASSET_CONFIG, HOLIDAYS } from '../constants';
 import { Vector2, Job, Buff, SimAppearance, Furniture, Memory } from '../types';
-import { GameStore } from './simulation';
+import { GameStore } from './simulation'; // 需要引入 GameStore 来访问 pathFinder
 import { minutes, getJobCapacity } from './simulationHelpers';
 import { SocialLogic } from './logic/social';
 import { DecisionLogic } from './logic/decision';
@@ -11,6 +11,11 @@ export class Sim {
     pos: Vector2;
     prevPos: Vector2; 
     target: Vector2 | null = null;
+    
+    // [新增] 路径相关属性
+    path: Vector2[] = [];
+    currentPathIndex: number = 0;
+    
     speed: number;
     gender: 'M' | 'F';
     name: string;
@@ -165,14 +170,11 @@ export class Sim {
     generateName() { return SURNAMES[Math.floor(Math.random() * SURNAMES.length)] + GIVEN_NAMES[Math.floor(Math.random() * GIVEN_NAMES.length)]; }
 
     applyTraits() {
-        // [重构] 更细致的代谢和属性修正
-        
-        // 1. MBTI 影响 (基础)
         if (this.mbti.includes('E')) { 
-            this.metabolism.social = 1.6; // E人：社交能量消耗很快，需要经常补
+            this.metabolism.social = 1.6; 
             this.socialModifier *= 1.2; 
         } else { 
-            this.metabolism.social = 0.6; // I人：非常耐得住寂寞
+            this.metabolism.social = 0.6; 
             this.socialModifier *= 0.9;
         }
 
@@ -185,42 +187,15 @@ export class Sim {
         if (this.mbti.includes('J')) { this.metabolism.hygiene = 0.8; this.metabolism.energy = 0.9; }
         else { this.metabolism.fun = 1.4; this.skillModifiers.creativity *= 1.1; }
 
-        // 2. 星座影响
         const el = this.zodiac.element;
-        if (el === 'fire') { // 火象 (白羊/狮子/射手)
-            this.skillModifiers.athletics *= 1.2; 
-            this.metabolism.energy *= 0.9;
-            this.metabolism.social *= 1.2; // 热情，需要观众
-        }
-        else if (el === 'earth') { // 土象 (金牛/处女/摩羯)
-            this.skillModifiers.gardening *= 1.2; 
-            this.skillModifiers.cooking *= 1.2; 
-            this.metabolism.hunger *= 0.8;
-            this.metabolism.social *= 0.9; // 务实，不爱无效社交
-        }
-        else if (el === 'air') { // 风象 (双子/天秤/水瓶)
-            this.skillModifiers.logic *= 1.1; 
-            this.skillModifiers.music *= 1.2; 
-            this.metabolism.social *= 1.4; // 话痨，必须要交流
-        }
-        else if (el === 'water') { // 水象 (巨蟹/天蝎/双鱼)
-            this.skillModifiers.creativity *= 1.3; 
-            this.skillModifiers.dancing *= 1.1;
-            // 水象更需要深层情感，而不是频繁社交，所以代谢不一定快，但Modifier高
-            this.socialModifier *= 1.2;
-        }
+        if (el === 'fire') { this.skillModifiers.athletics *= 1.2; this.metabolism.energy *= 0.9; this.metabolism.social *= 1.2; }
+        else if (el === 'earth') { this.skillModifiers.gardening *= 1.2; this.skillModifiers.cooking *= 1.2; this.metabolism.hunger *= 0.8; this.metabolism.social *= 0.9; }
+        else if (el === 'air') { this.skillModifiers.logic *= 1.1; this.skillModifiers.music *= 1.2; this.metabolism.social *= 1.4; }
+        else if (el === 'water') { this.skillModifiers.creativity *= 1.3; this.skillModifiers.dancing *= 1.1; this.socialModifier *= 1.2; }
 
-        // 3. 人生目标影响 (Life Goals)
-        if (this.lifeGoal.includes('万人迷') || this.lifeGoal.includes('派对')) {
-            this.metabolism.social *= 1.5; // 为了维持人设，必须不停社交
-            this.socialModifier *= 1.2;
-        }
-        if (this.lifeGoal.includes('隐居') || this.lifeGoal.includes('独处')) {
-            this.metabolism.social *= 0.4; // 极其耐得住寂寞
-        }
-        if (this.lifeGoal.includes('富翁') || this.lifeGoal.includes('大亨')) {
-            this.metabolism.fun *= 1.2; // 有钱人的枯燥
-        }
+        if (this.lifeGoal.includes('万人迷') || this.lifeGoal.includes('派对')) { this.metabolism.social *= 1.5; this.socialModifier *= 1.2; }
+        if (this.lifeGoal.includes('隐居') || this.lifeGoal.includes('独处')) { this.metabolism.social *= 0.4; }
+        if (this.lifeGoal.includes('富翁') || this.lifeGoal.includes('大亨')) { this.metabolism.fun *= 1.2; }
     }
 
     calculateDailyBudget() {
@@ -385,9 +360,8 @@ export class Sim {
         this.money += actualPay;
         this.dailyIncome += actualPay;
 
-        // [修复] 重置状态时必须清空计时器，否则会卡在原地直到原定下班时间
         this.action = 'idle';
-        this.actionTimer = 0; // <--- 添加这一行
+        this.actionTimer = 0; 
         this.target = null;
         this.interactionTarget = null;
         this.hasLeftWorkToday = true;
@@ -505,38 +479,71 @@ export class Sim {
             }
         }
 
+        // [核心修改] 移动逻辑：如果设定了目标，则寻路
+        // 这里的逻辑是：DecisionLogic 设定了 this.target
+        // 我们需要检测到 this.target 变化，然后生成 path
+        // 为了简化，我们在 update 中每帧检查
+        
         if (this.target) {
-            const dx = this.target.x - this.pos.x;
-            const dy = this.target.y - this.pos.y;
-            const dist = Math.sqrt(dx * dx + dy * dy);
+            const distToTarget = Math.sqrt(Math.pow(this.target.x - this.pos.x, 2) + Math.pow(this.target.y - this.pos.y, 2));
             
-            let speedMod = 1.0;
-            if (this.mood > 90) speedMod = 1.3;
-            if (this.mood < 30) speedMod = 0.7;
-            
-            const moveStep = this.speed * speedMod * (dt * 0.1);
-
-            if (dist <= 10 || dist <= moveStep + 2) {
+            // 1. 如果离目标很近，直接结束移动
+            if (distToTarget <= 10) {
                 this.pos = { ...this.target }; 
                 this.target = null;
+                this.path = []; // 清空路径
+                this.currentPathIndex = 0;
                 this.commuteTimer = 0; 
                 this.startInteraction();
             } else {
-                const angle = Math.atan2(dy, dx);
-                let nextX = this.pos.x + Math.cos(angle) * moveStep;
-                let nextY = this.pos.y + Math.sin(angle) * moveStep;
+                // 2. 如果有目标但没有路径，或者路径的目标不匹配（这里简化，假设 target 一旦设定就不变直到到达或重置）
+                // 实际上 target 变化时会先 reset() 清空 path
+                if (this.path.length === 0) {
+                    // 生成路径
+                    this.path = GameStore.pathFinder.findPath(this.pos.x, this.pos.y, this.target.x, this.target.y);
+                    this.currentPathIndex = 0;
+                    
+                    // 如果寻路失败（比如目标完全不可达），降级为直线移动
+                    if (this.path.length === 0) {
+                        this.path.push({ x: this.target.x, y: this.target.y });
+                    }
+                }
 
-                nextX = Math.max(10, Math.min(CONFIG.CANVAS_W - 10, nextX));
-                nextY = Math.max(10, Math.min(CONFIG.CANVAS_H - 10, nextY));
-                
-                this.pos.x = nextX;
-                this.pos.y = nextY;
-                
-                if (this.action !== 'commuting') {
-                    this.action = 'moving';
+                // 3. 沿着路径移动
+                if (this.currentPathIndex < this.path.length) {
+                    const nextNode = this.path[this.currentPathIndex];
+                    const dx = nextNode.x - this.pos.x;
+                    const dy = nextNode.y - this.pos.y;
+                    const distToNext = Math.sqrt(dx * dx + dy * dy);
+                    
+                    let speedMod = 1.0;
+                    if (this.mood > 90) speedMod = 1.3;
+                    if (this.mood < 30) speedMod = 0.7;
+                    
+                    const moveStep = this.speed * speedMod * (dt * 0.1);
+
+                    if (distToNext <= moveStep) {
+                        this.pos = { x: nextNode.x, y: nextNode.y };
+                        this.currentPathIndex++;
+                    } else {
+                        const angle = Math.atan2(dy, dx);
+                        this.pos.x += Math.cos(angle) * moveStep;
+                        this.pos.y += Math.sin(angle) * moveStep;
+                    }
+                    
+                    if (this.action !== 'commuting') {
+                        this.action = 'moving';
+                    }
+                } else {
+                    // 路径走完了，但可能因为 float 精度还没完全重合 target，强制完成
+                    this.pos = { ...this.target };
+                    this.target = null;
+                    this.path = [];
+                    this.startInteraction();
                 }
             }
         }
+        
         if (this.bubble.timer > 0) this.bubble.timer -= dt;
     }
 
@@ -631,6 +638,7 @@ export class Sim {
                 this.action = 'idle';
                 this.target = null;
                 this.interactionTarget = null;
+                this.path = []; // Reset Path
                 
                 this.money += this.job.salary;
                 this.dailyIncome += this.job.salary;
@@ -819,6 +827,7 @@ export class Sim {
         this.actionTimer = 0;
         this.isSideHustle = false;
         this.commuteTimer = 0;
+        this.path = []; // Clear Path
     }
 
     finishAction() {

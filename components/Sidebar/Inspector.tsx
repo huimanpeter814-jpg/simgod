@@ -117,6 +117,16 @@ const Inspector: React.FC<InspectorProps> = ({ selectedId, sims }) => {
         ? sim.bubble.text
         : statusText;
 
+    // 查找伴侣
+    const partnerId = Object.keys(sim.relationships).find(id => sim.relationships[id].isLover);
+    const partner = partnerId ? sims.find(s => s.id === partnerId) : null;
+    
+    // 专一度颜色
+    let faithColor = 'text-gray-300';
+    if (sim.faithfulness > 80) faithColor = 'text-success';
+    else if (sim.faithfulness < 40) faithColor = 'text-danger';
+    else faithColor = 'text-warning';
+
     return (
         <div className="w-[340px] max-h-[calc(100vh-160px)] flex flex-col bg-[#121212]/95 backdrop-blur-xl border border-white/20 rounded-xl shadow-2xl pointer-events-auto animate-[fadeIn_0.2s_ease-out] text-[#e0e0e0]">
             {/* Header */}
@@ -140,9 +150,24 @@ const Inspector: React.FC<InspectorProps> = ({ selectedId, sims }) => {
                     </div>
                     
                     <div className="flex flex-wrap gap-1 mt-2">
-                        <span className="text-[10px] px-2 py-0.5 rounded bg-white/10 text-gray-300 border border-white/10" title="年龄">{sim.age}岁</span>
-                        <span className="text-[10px] px-2 py-0.5 rounded bg-white/10 text-gray-300 border border-white/10" title="星座">{sim.zodiac.name}</span>
-                        <span className="text-[10px] px-2 py-0.5 rounded bg-white/10 text-gray-300 border border-white/10" title="性取向">{ORIENTATIONS.find(o => o.type === sim.orientation)?.label}</span>
+                        {/* 基础信息 (添加颜色) */}
+                        <span className="text-[10px] px-2 py-0.5 rounded bg-sky-500/20 text-sky-200 border border-sky-500/30" title="年龄">
+                            {sim.age}岁
+                        </span>
+                        <span className="text-[10px] px-2 py-0.5 rounded bg-purple-500/20 text-purple-200 border border-purple-500/30" title="星座">
+                            {sim.zodiac.name}
+                        </span>
+                        <span className="text-[10px] px-2 py-0.5 rounded bg-pink-500/20 text-pink-200 border border-pink-500/30" title="性取向">
+                            {ORIENTATIONS.find(o => o.type === sim.orientation)?.label}
+                        </span>
+                        
+                        {/* 情感状态标签 (有颜色区分) */}
+                        <span 
+                            className={`text-[10px] px-2 py-0.5 rounded border ${partner ? 'bg-love/10 border-love/30 text-love' : 'bg-white/5 border-white/10 text-gray-400'}`} 
+                            title="情感状态"
+                        >
+                            {partner ? `恋爱中` : '单身'}
+                        </span>
                         
                         <span className="text-[10px] px-2 py-0.5 rounded bg-accent/20 text-accent font-bold border border-accent/20" title="MBTI">{sim.mbti}</span>
                         <span className="text-[10px] px-2 py-0.5 rounded bg-blue-500/20 text-blue-200 border border-blue-500/30" title="职业">
@@ -233,9 +258,16 @@ const Inspector: React.FC<InspectorProps> = ({ selectedId, sims }) => {
                             )}
                         </div>
 
-                        {/* Relationships (Moved here) */}
+                        {/* Relationships */}
                         <div>
-                            <div className="text-[10px] text-gray-500 font-bold uppercase tracking-wider mb-2">人际关系</div>
+                            <div className="flex justify-between items-center mb-2">
+                                <div className="text-[10px] text-gray-500 font-bold uppercase tracking-wider">人际关系</div>
+                                {/* [移到此处] 专一度显示 */}
+                                <div className={`text-[10px] font-mono ${faithColor} flex items-center gap-1 bg-white/5 px-2 py-0.5 rounded border border-white/5`}>
+                                   <span>❤️ 专一: {Math.floor(sim.faithfulness)}</span>
+                                </div>
+                            </div>
+                            
                             <div className="flex flex-col gap-2">
                                 {Object.keys(sim.relationships).map(targetId => {
                                     const targetSim = sims.find(s => s.id === targetId);
