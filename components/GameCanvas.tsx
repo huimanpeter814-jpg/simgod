@@ -1,4 +1,4 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useState } from 'react';
 import { CONFIG, ROOMS, FURNITURE } from '../constants';
 import { GameStore, gameLoopStep, getActivePalette, drawAvatarHead } from '../utils/simulation';
 import { getAsset } from '../utils/assetLoader';
@@ -321,7 +321,14 @@ const GameCanvas: React.FC = () => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const requestRef = useRef<number | null>(null);
 
-    const cameraRef = useRef({ x: 0, y: 0 });
+    // [Update] 添加 zoom 状态
+    const cameraRef = useRef({ x: 0, y: 0, zoom: 1 });
+
+    // [New] 窗口大小状态，用于动态调整画布分辨率
+    const [windowSize, setWindowSize] = useState({
+        width: window.innerWidth,
+        height: window.innerHeight
+    });
 
     // 镜头锁定控制
     const isCameraLocked = useRef(false); 
@@ -335,6 +342,18 @@ const GameCanvas: React.FC = () => {
     const staticCanvasRef = useRef<HTMLCanvasElement | null>(null);
     // 记录上一帧的时间段，用于判断是否需要重绘静态层
     const lastTimePaletteRef = useRef<string>('');
+
+    // [New] 监听窗口大小变化
+    useEffect(() => {
+        const handleResize = () => {
+            setWindowSize({
+                width: window.innerWidth,
+                height: window.innerHeight
+            });
+        };
+        window.addEventListener('resize', handleResize);
+        return () => window.removeEventListener('resize', handleResize);
+    }, []);
 
     // ==========================================
     // 🖼️ 静态层绘制逻辑 (只绘制一次或当光照变化时绘制)
@@ -434,12 +453,16 @@ const GameCanvas: React.FC = () => {
 
         // --- 应用摄像机变换 ---
         ctx.save();
+        const zoom = cameraRef.current.zoom;
         const camX = Math.floor(cameraRef.current.x);
         const camY = Math.floor(cameraRef.current.y);
+        
+        // [New] 应用缩放和位移
+        ctx.scale(zoom, zoom);
         ctx.translate(-camX, -camY);
 
-        const mouseWorldX = lastMousePos.current.x + camX;
-        const mouseWorldY = lastMousePos.current.y + camY;
+        const mouseWorldX = (lastMousePos.current.x) / zoom + camX;
+        const mouseWorldY = (lastMousePos.current.y) / zoom + camY;
         
         // 2. 检测环境光变化，决定是否重绘静态层
         const p = getActivePalette();
@@ -460,9 +483,12 @@ const GameCanvas: React.FC = () => {
         if (hoveredItem && hoveredItem.type === 'furniture') {
             const f = hoveredItem.ref;
             const textWidth = ctx.measureText(f.label).width;
+            
+            ctx.save();
+            // Tooltip 保持不随 zoom 缩放 (可选，这里跟随世界缩放比较简单)
             ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
             ctx.strokeStyle = '#fff';
-            ctx.lineWidth = 1;
+            ctx.lineWidth = 1 / zoom; // 线条保持细致
             ctx.beginPath();
             ctx.roundRect(f.x + f.w/2 - textWidth/2 - 4, f.y - 20, textWidth + 8, 16, 2);
             ctx.fill();
@@ -472,6 +498,7 @@ const GameCanvas: React.FC = () => {
             ctx.font = '10px "Microsoft YaHei", sans-serif';
             ctx.fillText(f.label, f.x + f.w/2, f.y - 9);
             ctx.textAlign = 'left';
+            ctx.restore();
         }
 
         // 5. 绘制角色 (Sims)
@@ -496,7 +523,7 @@ const GameCanvas: React.FC = () => {
                 const rippleScale = (Date.now() % 1000) / 1000;
                 ctx.globalAlpha = (1 - rippleScale) * 0.6;
                 ctx.strokeStyle = '#39ff14';
-                ctx.lineWidth = 3;
+                ctx.lineWidth = 3 / zoom;
                 ctx.beginPath();
                 ctx.ellipse(0, 5, 10 + rippleScale * 15, 5 + rippleScale * 7, 0, 0, Math.PI * 2);
                 ctx.stroke();
@@ -549,7 +576,7 @@ const GameCanvas: React.FC = () => {
 
                 ctx.fillStyle = border;
                 ctx.beginPath(); ctx.moveTo(0, -h - 5); ctx.lineTo(-4, -h - 15); ctx.lineTo(4, -h - 15); ctx.fill();
-                ctx.fillStyle = bg; ctx.strokeStyle = border; ctx.lineWidth = 1.5;
+                ctx.fillStyle = bg; ctx.strokeStyle = border; ctx.lineWidth = 1.5 / zoom;
                 ctx.beginPath(); ctx.roundRect(-width / 2, -h - 38, width, 24, 4); ctx.fill(); ctx.stroke();
                 ctx.fillStyle = textC; ctx.textAlign = 'center';
                 ctx.fillText(sim.bubble.text, 0, -h - 22);
@@ -588,8 +615,12 @@ const GameCanvas: React.FC = () => {
         if (GameStore.selectedSimId && isCameraLocked.current && !isDragging.current) {
             const selectedSim = GameStore.sims.find(s => s.id === GameStore.selectedSimId);
             if (selectedSim) {
-                const targetX = selectedSim.pos.x - window.innerWidth / 2;
-                const targetY = selectedSim.pos.y - window.innerHeight / 2;
+                const zoom = cameraRef.current.zoom;
+                // 计算目标位置：将选中市民置于屏幕中心
+                // SimPos - (ScreenSize / 2) / Zoom
+                const targetX = selectedSim.pos.x - (window.innerWidth / 2) / zoom;
+                const targetY = selectedSim.pos.y - (window.innerHeight / 2) / zoom;
+                
                 // 平滑跟随
                 cameraRef.current.x = lerp(cameraRef.current.x, targetX, 0.05);
                 cameraRef.current.y = lerp(cameraRef.current.y, targetY, 0.05);
@@ -636,8 +667,9 @@ const GameCanvas: React.FC = () => {
                 // 一旦开始拖拽，解除镜头锁定，但不取消选中状态
                 isCameraLocked.current = false; 
             }
-            cameraRef.current.x -= e.movementX;
-            cameraRef.current.y -= e.movementY;
+            // 修正：拖拽距离需要除以 zoom
+            cameraRef.current.x -= e.movementX / cameraRef.current.zoom;
+            cameraRef.current.y -= e.movementY / cameraRef.current.zoom;
         }
     };
     
@@ -650,8 +682,11 @@ const GameCanvas: React.FC = () => {
             const rect = canvas.getBoundingClientRect();
             const mouseX = e.clientX - rect.left;
             const mouseY = e.clientY - rect.top;
-            const worldX = mouseX + cameraRef.current.x;
-            const worldY = mouseY + cameraRef.current.y;
+            
+            // 修正：点击世界坐标计算 Screen / Zoom + Cam
+            const zoom = cameraRef.current.zoom;
+            const worldX = mouseX / zoom + cameraRef.current.x;
+            const worldY = mouseY / zoom + cameraRef.current.y;
 
             // [优化] 点击检测
             // 1. 优先检测 Sims (动态，遍历检测)
@@ -673,7 +708,6 @@ const GameCanvas: React.FC = () => {
                 }
             } else {
                 // 2. 如果没点到 Sim，检测家具 (使用空间网格加速)
-                // (当前逻辑是点空地取消选中，如果未来想选中家具，可以在这里处理)
                 // const hitFurniture = GameStore.worldGrid.queryHit(worldX, worldY);
                 // if (hitFurniture) console.log("Clicked furniture:", hitFurniture.ref.label);
                 
@@ -685,16 +719,43 @@ const GameCanvas: React.FC = () => {
 
     const handleMouseLeave = () => { isDragging.current = false; };
 
+    // [New] 滚轮缩放事件
+    const handleWheel = (e: React.WheelEvent) => {
+        const zoomSpeed = 0.001;
+        const oldZoom = cameraRef.current.zoom;
+        const newZoom = Math.min(Math.max(oldZoom - e.deltaY * zoomSpeed, 0.5), 3); // Limit 0.5x to 3x
+
+        // 以鼠标为中心进行缩放
+        const rect = canvasRef.current!.getBoundingClientRect();
+        const mouseX = e.clientX - rect.left;
+        const mouseY = e.clientY - rect.top;
+        
+        // 计算缩放前的鼠标在世界坐标系的位置
+        const worldX = mouseX / oldZoom + cameraRef.current.x;
+        const worldY = mouseY / oldZoom + cameraRef.current.y;
+        
+        // 更新缩放
+        cameraRef.current.zoom = newZoom;
+        
+        // 调整相机位置，使得缩放后鼠标位置对应的世界坐标不变
+        // newWorldX = mouseX / newZoom + newCamX
+        // 我们希望 newWorldX == worldX
+        // 所以: newCamX = worldX - mouseX / newZoom
+        cameraRef.current.x = worldX - mouseX / newZoom;
+        cameraRef.current.y = worldY - mouseY / newZoom;
+    };
+
     return (
         <canvas
             ref={canvasRef}
-            width={window.innerWidth}
-            height={window.innerHeight}
+            width={windowSize.width}   // 使用动态宽度
+            height={windowSize.height} // 使用动态高度
             className="block bg-[#121212] cursor-crosshair"
             onMouseDown={handleMouseDown}
             onMouseMove={handleMouseMove}
             onMouseUp={handleMouseUp}
             onMouseLeave={handleMouseLeave}
+            onWheel={handleWheel} // 绑定滚轮事件
             onContextMenu={(e) => e.preventDefault()}
         />
     );
