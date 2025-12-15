@@ -98,11 +98,10 @@ export interface SimAppearance {
     pants: string;
 }
 
-// [新增] 记忆接口
 export interface Memory {
     id: string;
     time: string; // 记录发生的时间字符串
-    type: 'job' | 'social' | 'life' | 'achievement' | 'bad';
+    type: 'job' | 'social' | 'life' | 'achievement' | 'bad' | 'diary';
     text: string;
     relatedSimId?: string; // 如果是社交事件，记录对方ID
 }
@@ -112,6 +111,16 @@ export interface SimData {
   name: string;
   pos: Vector2;
   gender: 'M' | 'F';
+  height: number;         // cm
+  weight: number;         // kg
+  appearanceScore: number;// 0-100 (颜值)
+  luck: number;         // 幸运值 (0-100)
+  constitution: number; // 体质 (0-100)
+  eq: number;           // 情商 (0-100)
+  iq: number;           // 智商 (0-100)
+  reputation: number;   // 声望 (0-100)
+  morality: number;     // 道德 (0-100)
+  creativity: number;   // 创意/脑洞 (0-100) - 区别于 creativity 技能
   skinColor: string;
   hairColor: string;
   clothesColor: string;
