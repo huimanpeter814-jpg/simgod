@@ -1,7 +1,9 @@
 import React, { useRef, useEffect, useState } from 'react';
-import { CONFIG, ROOMS, FURNITURE } from '../constants';
-import { GameStore, gameLoopStep, getActivePalette, drawAvatarHead } from '../utils/simulation';
+import { CONFIG, AGE_CONFIG } from '../constants'; 
+import { GameStore, gameLoopStep, getActivePalette } from '../utils/simulation';
 import { getAsset } from '../utils/assetLoader';
+import { drawAvatarHead, drawPixelProp } from '../utils/render/pixelArt';
+import { PLOTS } from '../data/plots';
 
 // ==========================================
 // 🕒 后台保活核心：Worker Timer
@@ -23,295 +25,6 @@ const createWorker = () => {
     return new Worker(URL.createObjectURL(blob));
 };
 
-// ==========================================
-// 🎨 像素艺术绘制辅助 (用于静态层绘制)
-// ==========================================
-const drawPixelProp = (ctx: CanvasRenderingContext2D, f: any, p: any) => {
-    const { x, y, w, h, color, pixelPattern } = f;
-    
-    // 基础颜色处理
-    ctx.fillStyle = color;
-
-    // --- 🌳 自然景观 (树木/灌木) ---
-    if (pixelPattern === 'tree_pixel') {
-        // 树干 (深棕色)
-        ctx.fillStyle = '#6D4C41';
-        const trunkW = w * 0.3;
-        ctx.fillRect(x + (w - trunkW) / 2, y + h * 0.6, trunkW, h * 0.4);
-        
-        // 树冠 (三层乐高堆叠)
-        // 底层 (深色阴影)
-        ctx.fillStyle = '#1B5E20'; 
-        ctx.fillRect(x, y + h * 0.3, w, h * 0.4);
-        // 中层 (主色)
-        ctx.fillStyle = '#2E7D32'; 
-        ctx.fillRect(x + 2, y + h * 0.15, w - 4, h * 0.4);
-        // 顶层 (高光)
-        ctx.fillStyle = '#4CAF50'; 
-        ctx.fillRect(x + 6, y, w - 12, h * 0.3);
-        return;
-    }
-    
-    if (pixelPattern === 'bush') {
-        ctx.fillStyle = '#2E7D32';
-        ctx.fillRect(x, y + h*0.2, w, h*0.8);
-        ctx.fillStyle = '#4CAF50'; // 高光顶
-        ctx.fillRect(x + 4, y, w - 8, h*0.4);
-        // 点缀浆果
-        ctx.fillStyle = '#FF5252';
-        ctx.fillRect(x + 6, y + 10, 4, 4);
-        ctx.fillRect(x + w - 10, y + 15, 4, 4);
-        return;
-    }
-
-    // --- 🛋️ 家具类 ---
-    if (pixelPattern && pixelPattern.startsWith('bed')) {
-        // 床头板
-        ctx.fillStyle = '#5D4037';
-        ctx.fillRect(x, y, w, 6);
-        // 床垫 (白)
-        ctx.fillStyle = '#ECEFF1';
-        ctx.fillRect(x, y + 6, w, h - 6);
-        // 枕头 (区分单双人)
-        ctx.fillStyle = '#FFFFFF';
-        if (pixelPattern === 'bed_king' || pixelPattern === 'bed_bunk') {
-            ctx.fillRect(x + 6, y + 10, w / 2 - 10, 14); // 左枕头
-            ctx.fillRect(x + w / 2 + 4, y + 10, w / 2 - 10, 14); // 右枕头
-        } else {
-            ctx.fillRect(x + w/2 - 10, y + 10, 20, 14);
-        }
-        // 被子 (使用家具主色)
-        ctx.fillStyle = color;
-        ctx.fillRect(x + 2, y + 30, w - 4, h - 32);
-        // 被子折痕阴影
-        ctx.fillStyle = 'rgba(0,0,0,0.1)';
-        ctx.fillRect(x + 2, y + 30, w - 4, 4);
-        return;
-    }
-
-    if (pixelPattern === 'sofa_pixel' || pixelPattern === 'sofa_lazy' || pixelPattern === 'sofa_vip') {
-        // 沙发底座
-        ctx.fillStyle = color;
-        ctx.fillRect(x, y + h/2, w, h/2); // 底座
-        ctx.fillRect(x, y, w, h); // 靠背
-        // 扶手 (深色一点)
-        ctx.fillStyle = 'rgba(0,0,0,0.2)';
-        ctx.fillRect(x, y + 10, 6, h - 10); // 左扶手
-        ctx.fillRect(x + w - 6, y + 10, 6, h - 10); // 右扶手
-        // 坐垫高光
-        ctx.fillStyle = 'rgba(255,255,255,0.15)';
-        ctx.fillRect(x + 6, y + h/2, w - 12, h/2 - 2);
-        return;
-    }
-
-    // --- 💻 办公/科技类 ---
-    if (pixelPattern === 'desk_pixel' || pixelPattern === 'desk_simple') {
-        // 桌腿
-        ctx.fillStyle = '#455A64';
-        ctx.fillRect(x + 2, y, 4, h);
-        ctx.fillRect(x + w - 6, y, 4, h);
-        // 桌面
-        ctx.fillStyle = color;
-        ctx.fillRect(x, y, w, h * 0.8);
-        // 侧边阴影
-        ctx.fillStyle = 'rgba(0,0,0,0.2)';
-        ctx.fillRect(x, y + h * 0.8, w, 4);
-        return;
-    }
-    
-    if (pixelPattern === 'pc_pixel' || pixelPattern === 'console') {
-        // 底座
-        ctx.fillStyle = '#37474F';
-        ctx.fillRect(x + w/2 - 6, y + h - 4, 12, 4);
-        // 屏幕边框
-        ctx.fillStyle = '#263238';
-        ctx.fillRect(x, y, w, h - 6);
-        // 屏幕内容 (呼吸灯效果)
-        const time = Date.now() % 2000;
-        ctx.fillStyle = time < 1000 ? '#00BCD4' : '#0097A7';
-        ctx.fillRect(x + 2, y + 2, w - 4, h - 10);
-        return;
-    }
-
-    if (pixelPattern === 'server') {
-        ctx.fillStyle = '#212121';
-        ctx.fillRect(x, y, w, h);
-        // 闪烁的灯
-        for(let i=0; i<4; i++) {
-             ctx.fillStyle = Math.random() > 0.5 ? '#00E676' : '#212121';
-             ctx.fillRect(x + w - 8, y + 5 + i*8, 4, 4);
-        }
-        // 通风口线条
-        ctx.fillStyle = '#424242';
-        for(let i=0; i<h; i+=4) {
-            ctx.fillRect(x + 4, y + i, w - 16, 2);
-        }
-        return;
-    }
-
-    // --- 🏙️ 城市设施 ---
-    if (pixelPattern === 'vending') {
-        // 机身
-        ctx.fillStyle = color;
-        ctx.fillRect(x, y, w, h);
-        // 顶部灯箱
-        ctx.fillStyle = 'rgba(255,255,255,0.4)';
-        ctx.fillRect(x + 2, y + 2, w - 4, 6);
-        // 玻璃窗
-        ctx.fillStyle = '#81D4FA';
-        ctx.fillRect(x + 4, y + 12, w * 0.6, h * 0.5);
-        // 饮料罐 (像素点)
-        ctx.fillStyle = '#FF5252';
-        ctx.fillRect(x + 6, y + 16, 4, 6);
-        ctx.fillStyle = '#FFD740';
-        ctx.fillRect(x + 12, y + 16, 4, 6);
-        // 按钮区
-        ctx.fillStyle = '#263238';
-        ctx.fillRect(x + w * 0.7, y + 12, w * 0.2, h * 0.3);
-        // 取货口
-        ctx.fillStyle = '#212121';
-        ctx.fillRect(x + 4, y + h - 10, w - 8, 8);
-        return;
-    }
-
-    if (pixelPattern === 'bench_park') {
-        // 木条纹理
-        ctx.fillStyle = '#A1887F';
-        for (let i = 0; i < h; i += 6) {
-            ctx.fillRect(x, y + i, w, 4);
-        }
-        // 扶手
-        ctx.fillStyle = '#5D4037';
-        ctx.fillRect(x, y - 2, 4, h + 4);
-        ctx.fillRect(x + w - 4, y - 2, 4, h + 4);
-        return;
-    }
-
-    // --- 🛍️ 商店货架 ---
-    if (pixelPattern && pixelPattern.startsWith('shelf')) {
-        // 柜体
-        ctx.fillStyle = '#E0E0E0';
-        ctx.fillRect(x, y, w, h);
-        // 层板阴影
-        ctx.fillStyle = 'rgba(0,0,0,0.1)';
-        ctx.fillRect(x, y + h/3, w, 2);
-        ctx.fillRect(x, y + h*2/3, w, 2);
-        
-        // 商品 (随机色块模拟)
-        const colors = pixelPattern === 'shelf_veg' ? ['#66BB6A', '#9CCC65'] : 
-                       pixelPattern === 'shelf_meat' ? ['#EF5350', '#EC407A'] : 
-                       ['#FFCA28', '#42A5F5', '#AB47BC'];
-                       
-        for (let r = 0; r < 3; r++) {
-            for (let c = 0; c < 4; c++) {
-                ctx.fillStyle = colors[(r+c)%colors.length];
-                const itemW = w/4 - 2;
-                ctx.fillRect(x + 1 + c * (w/4), y + 2 + r * (h/3), itemW, h/3 - 4);
-            }
-        }
-        return;
-    }
-    
-    // --- 🚦 交通标识 ---
-    if (pixelPattern === 'zebra') {
-        ctx.fillStyle = '#FFFFFF';
-        ctx.fillRect(x, y, w, h);
-        return;
-    }
-
-    // --- 🎨 艺术品 ---
-    if (pixelPattern === 'painting') {
-        // 画框
-        ctx.fillStyle = '#dcdde1'; // 银色边框
-        ctx.fillRect(x, y, w, h);
-        // 画布背景
-        ctx.fillStyle = '#f5f6fa';
-        ctx.fillRect(x + 2, y + 2, w - 4, h - 4);
-        
-        // 抽象画内容 (随机色块)
-        const seed = (x + y) % 5; // 伪随机
-        if (seed === 0) { // 蒙德里安风格
-            ctx.fillStyle = '#e84118'; ctx.fillRect(x + 4, y + 4, w/2, h/2);
-            ctx.fillStyle = '#0097e6'; ctx.fillRect(x + w/2 + 2, y + h/2 + 2, w/2 - 6, h/2 - 6);
-            ctx.fillStyle = '#fbc531'; ctx.fillRect(x + w - 10, y + 4, 6, 6);
-        } else if (seed === 1) { // 风景风格
-            ctx.fillStyle = '#4cd137'; ctx.fillRect(x + 4, y + h/2, w - 8, h/2 - 4); // 草地
-            ctx.fillStyle = '#00a8ff'; ctx.fillRect(x + 4, y + 4, w - 8, h/2); // 天空
-            ctx.fillStyle = '#fbc531'; ctx.beginPath(); ctx.arc(x + w - 10, y + 10, 4, 0, Math.PI*2); ctx.fill(); // 太阳
-        } else { // 现代抽象
-            ctx.fillStyle = color; 
-            ctx.beginPath(); ctx.arc(x + w/2, y + h/2, w/4, 0, Math.PI*2); ctx.fill();
-            ctx.strokeStyle = '#2f3640'; ctx.lineWidth = 1; ctx.stroke();
-        }
-        return;
-    }
-
-    if (pixelPattern === 'statue') {
-        // 底座
-        ctx.fillStyle = '#7f8fa6';
-        ctx.fillRect(x + 4, y + h - 10, w - 8, 10);
-        // 雕塑主体 (抽象形状)
-        ctx.fillStyle = '#f5f6fa'; // 石膏白
-        // 身体
-        ctx.fillRect(x + w/2 - 6, y + 10, 12, h - 20);
-        // 头部
-        ctx.beginPath(); ctx.arc(x + w/2, y + 10, 8, 0, Math.PI*2); ctx.fill();
-        // 手臂/装饰
-        ctx.fillStyle = '#dcdde1';
-        ctx.fillRect(x + w/2 - 12, y + 20, 6, 20);
-        ctx.fillRect(x + w/2 + 6, y + 25, 6, 15);
-        
-        // 增加阴影立体感
-        ctx.fillStyle = 'rgba(0,0,0,0.1)';
-        ctx.fillRect(x + w/2 + 2, y + 10, 4, h - 20);
-        return;
-    }
-
-    // 💎 展示柜
-    if (pixelPattern === 'display_case') {
-        // 玻璃罩
-        ctx.fillStyle = 'rgba(129, 236, 236, 0.3)';
-        ctx.fillRect(x, y, w, h);
-        ctx.strokeStyle = 'rgba(255,255,255,0.5)';
-        ctx.lineWidth = 1;
-        ctx.strokeRect(x, y, w, h);
-        
-        // 底座
-        ctx.fillStyle = '#2f3640';
-        ctx.fillRect(x, y + h - 10, w, 10);
-        
-        // 内部展品 (随机)
-        ctx.fillStyle = color; // 展品颜色
-        if (f.label.includes('钻石')) {
-             ctx.beginPath(); ctx.moveTo(x+w/2, y+h/2-5); ctx.lineTo(x+w/2+5, y+h/2); ctx.lineTo(x+w/2, y+h/2+5); ctx.lineTo(x+w/2-5, y+h/2); ctx.fill();
-        } else {
-             ctx.fillRect(x + w/2 - 4, y + h/2 + 5, 8, 8);
-        }
-        return;
-    }
-
-    // --- 🎲 通用乐高风格回退 (Enhanced Box) ---
-    // 1. 主体
-    ctx.fillStyle = color;
-    ctx.fillRect(x, y, w, h);
-    
-    // 2. 顶部高光 (模拟立体感)
-    ctx.fillStyle = 'rgba(255,255,255,0.3)';
-    ctx.fillRect(x, y, w, 4); // 顶边
-    ctx.fillRect(x, y, 4, h); // 左边
-    
-    // 3. 底部阴影
-    ctx.fillStyle = 'rgba(0,0,0,0.3)';
-    ctx.fillRect(x, y + h - 4, w, 4); // 底边
-    ctx.fillRect(x + w - 4, y, 4, h); // 右边
-
-    // 4. 内部细节 (如果是桌子或柜子)
-    if (f.label.includes('柜') || f.label.includes('桌')) {
-         ctx.fillStyle = 'rgba(0,0,0,0.1)';
-         ctx.fillRect(x + 6, y + 6, w - 12, h - 12);
-    }
-};
-
 // Lerp Helper
 const lerp = (start: number, end: number, factor: number) => {
     return start + (end - start) * factor;
@@ -321,29 +34,38 @@ const GameCanvas: React.FC = () => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const requestRef = useRef<number | null>(null);
 
-    // [Update] 添加 zoom 状态
-    const cameraRef = useRef({ x: 0, y: 0, zoom: 1 });
+    // [Fix] 初始相机位置：居中
+    // 假设地图中心大概在 (1800, 1000)，初始 Zoom 0.8
+    const cameraRef = useRef({ 
+        x: 1800 - window.innerWidth / 2, 
+        y: 800 - window.innerHeight / 2, 
+        zoom: 0.8 
+    });
 
-    // [New] 窗口大小状态，用于动态调整画布分辨率
+    // 用于存储当前悬停的物品
+    const hoveredTarget = useRef<any>(null);
+
     const [windowSize, setWindowSize] = useState({
         width: window.innerWidth,
         height: window.innerHeight
     });
 
-    // 镜头锁定控制
     const isCameraLocked = useRef(false); 
     const lastSelectedId = useRef<string | null>(null);
 
-    const isDragging = useRef(false);
+    // 鼠标交互状态 Refs
+    const isDragging = useRef(false); // 是否按下了鼠标左键
     const lastMousePos = useRef({ x: 0, y: 0 });
-    const hasDragged = useRef(false);
+    const hasDragged = useRef(false); // 按下鼠标后是否发生了位移（用于区分点击和拖拽）
+    const isPickingUp = useRef(false); // 标记当前操作是否是“刚开始拾取”的点击
+    
+    const dragStartPos = useRef({ x: 0, y: 0 });
 
     // [优化] 静态层 Canvas 缓存
     const staticCanvasRef = useRef<HTMLCanvasElement | null>(null);
-    // 记录上一帧的时间段，用于判断是否需要重绘静态层
     const lastTimePaletteRef = useRef<string>('');
+    const lastStaticUpdateRef = useRef<number>(0); 
 
-    // [New] 监听窗口大小变化
     useEffect(() => {
         const handleResize = () => {
             setWindowSize({
@@ -352,6 +74,13 @@ const GameCanvas: React.FC = () => {
             });
         };
         window.addEventListener('resize', handleResize);
+        
+        // 初始化时稍微纠正一下相机中心，确保不偏
+        if (cameraRef.current.x === 0 && cameraRef.current.y === 0) {
+             cameraRef.current.x = 1800 - window.innerWidth / 2;
+             cameraRef.current.y = 800 - window.innerHeight / 2;
+        }
+
         return () => window.removeEventListener('resize', handleResize);
     }, []);
 
@@ -374,8 +103,13 @@ const GameCanvas: React.FC = () => {
         ctx.fillStyle = p.bg;
         ctx.fillRect(0, 0, CONFIG.CANVAS_W, CONFIG.CANVAS_H);
 
-        // 2. 绘制房间/区域
-        ROOMS.forEach((r: any) => {
+        // 2. 绘制房间/区域 (读取 GameStore)
+        GameStore.rooms.forEach((r: any) => {
+            // [Edit Mode] 如果是正在拖拽的地皮，跳过静态绘制
+            if (GameStore.editor.mode === 'plot' && GameStore.editor.selectedPlotId && GameStore.editor.isDragging) {
+                if (r.id.startsWith(`${GameStore.editor.selectedPlotId}_`)) return;
+            }
+
             // 外部阴影
             ctx.fillStyle = 'rgba(0,0,0,0.2)';
             ctx.fillRect(r.x + 6, r.y + 6, r.w, r.h);
@@ -415,8 +149,13 @@ const GameCanvas: React.FC = () => {
             }
         });
 
-        // 3. 绘制家具
-        FURNITURE.forEach((f: any) => {
+        // 3. 绘制家具 (读取 GameStore)
+        GameStore.furniture.forEach((f: any) => {
+            // [Edit Mode] 如果是正在拖拽的家具，跳过静态绘制
+            if (GameStore.editor.mode === 'furniture' && GameStore.editor.selectedFurnitureId === f.id && GameStore.editor.isDragging) return;
+            // [Edit Mode] 如果是正在拖拽的地皮上的家具，也跳过静态绘制
+            if (GameStore.editor.mode === 'plot' && GameStore.editor.selectedPlotId && f.id.startsWith(`${GameStore.editor.selectedPlotId}_`) && GameStore.editor.isDragging) return;
+
             if (f.pixelPattern !== 'zebra') {
                 ctx.fillStyle = p.furniture_shadow || 'rgba(0,0,0,0.2)';
                 ctx.fillRect(f.x + 4, f.y + 4, f.w, f.h);
@@ -437,68 +176,169 @@ const GameCanvas: React.FC = () => {
             }
         });
 
-        console.log("[Canvas] Static Layer Updated");
+        lastStaticUpdateRef.current = Date.now();
     };
 
     // ==========================================
     // 🎭 主渲染循环 (动态层)
     // ==========================================
     const draw = (ctx: CanvasRenderingContext2D) => {
-        // 关闭平滑处理以保持像素锐利
         ctx.imageSmoothingEnabled = false;
 
-        // 1. 清空视口
         ctx.fillStyle = '#121212';
         ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
 
-        // --- 应用摄像机变换 ---
         ctx.save();
         const zoom = cameraRef.current.zoom;
         const camX = Math.floor(cameraRef.current.x);
         const camY = Math.floor(cameraRef.current.y);
         
-        // [New] 应用缩放和位移
         ctx.scale(zoom, zoom);
         ctx.translate(-camX, -camY);
 
         const mouseWorldX = (lastMousePos.current.x) / zoom + camX;
         const mouseWorldY = (lastMousePos.current.y) / zoom + camY;
         
-        // 2. 检测环境光变化，决定是否重绘静态层
         const p = getActivePalette();
-        const paletteKey = JSON.stringify(p); // 简单比较引用或内容
+        const paletteKey = JSON.stringify(p);
+        
         if (paletteKey !== lastTimePaletteRef.current || !staticCanvasRef.current) {
-            renderStaticLayer();
-            lastTimePaletteRef.current = paletteKey;
+             renderStaticLayer();
+             lastTimePaletteRef.current = paletteKey;
         }
 
-        // 3. 绘制静态背景层 (Copy Image) - 极快!
+        // 3. 绘制静态背景层
         if (staticCanvasRef.current) {
             ctx.drawImage(staticCanvasRef.current, 0, 0);
         }
 
-        // 4. [优化] 鼠标悬停检测 (Furniture Tooltip)
-        // 使用空间网格查询，而不是遍历所有家具
-        const hoveredItem = GameStore.worldGrid.queryHit(mouseWorldX, mouseWorldY);
-        if (hoveredItem && hoveredItem.type === 'furniture') {
-            const f = hoveredItem.ref;
-            const textWidth = ctx.measureText(f.label).width;
-            
-            ctx.save();
-            // Tooltip 保持不随 zoom 缩放 (可选，这里跟随世界缩放比较简单)
-            ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
-            ctx.strokeStyle = '#fff';
-            ctx.lineWidth = 1 / zoom; // 线条保持细致
+        // 4. Editor Preview
+        if (GameStore.editor.mode !== 'none') {
+            // Grid
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+            ctx.lineWidth = 1;
+            const gridSize = 100;
+            const startX = Math.floor(camX / gridSize) * gridSize;
+            const startY = Math.floor(camY / gridSize) * gridSize;
+            const endX = startX + (ctx.canvas.width / zoom);
+            const endY = startY + (ctx.canvas.height / zoom);
+
             ctx.beginPath();
-            ctx.roundRect(f.x + f.w/2 - textWidth/2 - 4, f.y - 20, textWidth + 8, 16, 2);
-            ctx.fill();
+            for (let x = startX; x < endX; x += gridSize) {
+                ctx.moveTo(x, startY); ctx.lineTo(x, endY);
+            }
+            for (let y = startY; y < endY; y += gridSize) {
+                ctx.moveTo(startX, y); ctx.lineTo(endX, y);
+            }
             ctx.stroke();
-            ctx.fillStyle = '#fff';
-            ctx.textAlign = 'center';
-            ctx.font = '10px "Microsoft YaHei", sans-serif';
-            ctx.fillText(f.label, f.x + f.w/2, f.y - 9);
-            ctx.textAlign = 'left';
-            ctx.restore();
+
+            if (GameStore.editor.previewPos) {
+                const { x, y } = GameStore.editor.previewPos;
+                ctx.save();
+                ctx.globalAlpha = 0.9; 
+
+                if (GameStore.editor.mode === 'plot') {
+                    const drawPlotPreview = (plotId: string | null, templateId: string | null, dx: number, dy: number) => {
+                        let roomsToRender: any[] = [];
+                        
+                        if (plotId) {
+                            roomsToRender = GameStore.rooms.filter(r => r.id.startsWith(`${plotId}_`)).map(r => ({ ...r, x: r.x + dx, y: r.y + dy }));
+                        } else if (templateId) {
+                            const tpl = PLOTS[templateId];
+                            if (tpl) {
+                                roomsToRender = tpl.rooms.map(r => ({ ...r, x: r.x + x, y: r.y + y }));
+                            }
+                        }
+
+                        roomsToRender.forEach(r => {
+                            const floorImg = getAsset(r.imagePath);
+                            if (floorImg) {
+                                const ptrn = ctx.createPattern(floorImg, 'repeat');
+                                if (ptrn) {
+                                    ctx.fillStyle = ptrn;
+                                    ctx.save();
+                                    ctx.translate(r.x, r.y);
+                                    ctx.fillRect(0, 0, r.w, r.h);
+                                    ctx.restore();
+                                } else {
+                                    ctx.drawImage(floorImg, r.x, r.y, r.w, r.h);
+                                }
+                            } else {
+                                ctx.fillStyle = r.color;
+                                ctx.fillRect(r.x, r.y, r.w, r.h);
+                                if (r.pixelPattern === 'grid' || r.pixelPattern === 'tile') {
+                                    ctx.strokeStyle = 'rgba(0,0,0,0.05)';
+                                    ctx.strokeRect(r.x, r.y, r.w, r.h); 
+                                }
+                            }
+                            ctx.strokeStyle = plotId ? '#ffff00' : '#00ff00';
+                            ctx.lineWidth = 3;
+                            ctx.strokeRect(r.x, r.y, r.w, r.h);
+                        });
+
+                        if (templateId) {
+                            ctx.fillStyle = '#00ff00';
+                            ctx.font = 'bold 14px "Microsoft YaHei"';
+                            ctx.fillText("✨ 新地皮", x, y - 10);
+                        }
+                    };
+
+                    if (GameStore.editor.selectedPlotId) {
+                        const plot = GameStore.worldLayout.find(p => p.id === GameStore.editor.selectedPlotId);
+                        if (plot) {
+                            drawPlotPreview(plot.id, null, x - plot.x, y - plot.y);
+                        }
+                    } else if (GameStore.editor.placingTemplateId) {
+                        drawPlotPreview(null, GameStore.editor.placingTemplateId, 0, 0);
+                    }
+                } 
+                else if (GameStore.editor.mode === 'furniture') {
+                    const drawFurnPreview = (f: any, isNew: boolean) => {
+                        const renderX = isNew ? x : x;
+                        const renderY = isNew ? y : y;
+                        
+                        const previewF = { ...f, x: renderX, y: renderY };
+
+                        if (previewF.pixelPattern !== 'zebra') {
+                            ctx.fillStyle = p.furniture_shadow || 'rgba(0,0,0,0.2)';
+                            ctx.fillRect(previewF.x + 4, previewF.y + 4, previewF.w, previewF.h);
+                        }
+
+                        const furnImg = getAsset(previewF.imagePath);
+                        if (furnImg) {
+                            ctx.drawImage(furnImg, previewF.x, previewF.y, previewF.w, previewF.h);
+                        } else {
+                            drawPixelProp(ctx, previewF, p);
+                            if (previewF.pixelGlow) {
+                                ctx.shadowBlur = 10;
+                                ctx.shadowColor = previewF.glowColor || previewF.color;
+                                ctx.fillStyle = 'rgba(255,255,255,0.2)';
+                                ctx.fillRect(previewF.x, previewF.y, previewF.w, previewF.h);
+                                ctx.shadowBlur = 0;
+                            }
+                        }
+
+                        ctx.strokeStyle = isNew ? '#00ff00' : '#ffff00';
+                        ctx.lineWidth = 2;
+                        ctx.strokeRect(previewF.x - 2, previewF.y - 2, previewF.w + 4, previewF.h + 4);
+                        
+                        if (isNew) {
+                            ctx.fillStyle = '#00ff00';
+                            ctx.font = 'bold 12px "Microsoft YaHei"';
+                            ctx.fillText("✨ 新增", renderX, renderY - 5);
+                        }
+                    };
+
+                    if (GameStore.editor.selectedFurnitureId) {
+                        const f = GameStore.furniture.find(i => i.id === GameStore.editor.selectedFurnitureId);
+                        if (f) drawFurnPreview(f, false);
+                    } 
+                    else if (GameStore.editor.placingFurniture) {
+                        drawFurnPreview(GameStore.editor.placingFurniture, true);
+                    }
+                }
+                ctx.restore();
+            }
         }
 
         // 5. 绘制角色 (Sims)
@@ -506,71 +346,62 @@ const GameCanvas: React.FC = () => {
         renderSims.forEach(sim => {
             const renderX = sim.pos.x; 
             const renderY = sim.pos.y; 
-            if (sim.action === 'working' && renderX < 0) return;
-
+            
             ctx.save();
             ctx.translate(renderX, renderY);
 
-            // 选中特效
             if (GameStore.selectedSimId === sim.id) {
-                // 内圈
                 ctx.fillStyle = '#39ff14';
-                ctx.beginPath();
-                ctx.ellipse(0, 5, 12, 6, 0, 0, Math.PI * 2);
-                ctx.fill();
-
-                // 外圈扩散
-                const rippleScale = (Date.now() % 1000) / 1000;
-                ctx.globalAlpha = (1 - rippleScale) * 0.6;
-                ctx.strokeStyle = '#39ff14';
-                ctx.lineWidth = 3 / zoom;
-                ctx.beginPath();
-                ctx.ellipse(0, 5, 10 + rippleScale * 15, 5 + rippleScale * 7, 0, 0, Math.PI * 2);
-                ctx.stroke();
-                ctx.globalAlpha = 1.0;
-
-                // 悬浮箭头
-                const floatY = -65 + Math.sin(Date.now() / 150) * 4;
-                ctx.fillStyle = '#39ff14';
-                ctx.beginPath();
-                ctx.moveTo(0, floatY);
-                ctx.lineTo(-10, floatY - 12);
-                ctx.lineTo(10, floatY - 12);
-                ctx.closePath();
-                ctx.fill();
+                ctx.beginPath(); ctx.ellipse(0, 5, 12, 6, 0, 0, Math.PI * 2); ctx.fill();
             } else {
                 ctx.fillStyle = 'rgba(0,0,0,0.3)';
-                ctx.beginPath(); 
-                ctx.ellipse(0, 5, 10, 4, 0, 0, Math.PI * 2); 
-                ctx.fill();
+                ctx.beginPath(); ctx.ellipse(0, 5, 10, 4, 0, 0, Math.PI * 2); ctx.fill();
             }
 
-            // 绘制小人身体
-            let w = 20, h = 42;
-            ctx.fillStyle = '#455A64'; 
-            ctx.fillRect(-w / 2, -h + 20, w, h / 2);
-            ctx.fillStyle = sim.clothesColor;
-            ctx.fillRect(-w / 2, -h + 12, w, h - 20);
-            ctx.fillStyle = 'rgba(0,0,0,0.1)';
-            ctx.fillRect(-w/2, -h + 12, 4, 10); // 左臂
-            ctx.fillRect(w/2 - 4, -h + 12, 4, 10); // 右臂
+            // @ts-ignore
+            const ageConfig = AGE_CONFIG[sim.ageStage] || AGE_CONFIG.Adult;
+            const w = ageConfig.width || 20;
+            const h = ageConfig.height || 42;
+            const headSize = ageConfig.headSize || 13;
+            const headY = -h + (headSize * 0.4);
 
-            drawAvatarHead(ctx, 0, -h + 6, 13, sim);
+            drawAvatarHead(ctx, 0, headY, headSize, sim, 'back');
+
+            if (sim.ageStage === 'Infant' || sim.ageStage === 'Toddler') {
+                ctx.fillStyle = '#ffffff';
+                ctx.beginPath(); ctx.roundRect(-w / 2 + 1, -h * 0.45, w - 2, h * 0.45, 4); ctx.fill();
+                const shoulderY = -h + (headSize * 1); 
+                ctx.fillStyle = sim.clothesColor;
+                ctx.fillRect(-w / 2, shoulderY, w, h * 0.4); 
+            } else {
+                ctx.fillStyle = sim.pantsColor || '#455A64'; 
+                ctx.fillRect(-w / 2, -h * 0.45, w, h * 0.45);
+                const shoulderY = -h + (headSize * 0.6); 
+                const shirtBottomY = -h * 0.25;
+                ctx.fillStyle = sim.clothesColor;
+                ctx.fillRect(-w / 2, shoulderY, w, shirtBottomY - shoulderY); 
+            }
+            
+            const shoulderY = -h + (headSize * 0.6); 
+            const shirtBottomY = -h * 0.4; 
+            ctx.fillStyle = 'rgba(0,0,0,0.1)'; 
+            const armW = Math.max(3, w * 0.2);
+            const armH = (shirtBottomY - shoulderY) * 0.9;
+            ctx.fillRect(-w/2, shoulderY, armW, armH); 
+            ctx.fillRect(w/2 - armW, shoulderY, armW, armH);
+
+            drawAvatarHead(ctx, 0, headY, headSize, sim, 'front');
 
             if (sim.action === 'phone') {
-                ctx.fillStyle = '#ECEFF1'; ctx.fillRect(8, -22, 6, 9);
-                ctx.fillStyle = '#81D4FA'; ctx.fillRect(9, -21, 4, 7);
+                ctx.fillStyle = '#ECEFF1'; ctx.fillRect(w/2 - 2, shoulderY + 5, 6, 9);
+                ctx.fillStyle = '#81D4FA'; ctx.fillRect(w/2 - 1, shoulderY + 6, 4, 7);
             }
 
-            // 气泡
             if (sim.bubble.timer > 0 && sim.bubble.text) {
                 ctx.font = 'bold 10px "Microsoft YaHei", sans-serif';
                 let width = ctx.measureText(sim.bubble.text).width + 12;
-                
                 let bg = '#fff', border='#2d3436', textC='#2d3436';
                 if (sim.bubble.type === 'love') { bg = '#fd79a8'; border = '#e84393'; textC = '#fff'; }
-                else if (sim.bubble.type === 'ai') { bg = '#a29bfe'; border = '#6c5ce7'; textC = '#fff'; }
-                else if (sim.bubble.type === 'act') { bg = '#55efc4'; border = '#00b894'; textC = '#000'; }
                 else if (sim.bubble.type === 'bad') { bg = '#ff7675'; border = '#d63031'; textC = '#fff'; }
                 else if (sim.bubble.type === 'money') { bg = '#ffeaa7'; border = '#fdcb6e'; textC = '#d35400'; }
 
@@ -597,13 +428,50 @@ const GameCanvas: React.FC = () => {
             ctx.textAlign = 'left';
             if (p.life <= 0) GameStore.particles.splice(i, 1);
         }
+        // 7. 绘制悬停家具名称 (放在最上层绘制)
+        if (hoveredTarget.current && GameStore.editor.mode === 'none') {
+            const t = hoveredTarget.current;
+            const label = t.label;
+            
+            if (label) {
+                const cx = t.x + t.w / 2;
+                const topY = t.y - 12; // 显示在家具上方
+
+                ctx.save();
+                ctx.font = 'bold 12px "Microsoft YaHei", sans-serif';
+                const padding = 6;
+                const metrics = ctx.measureText(label);
+                const textW = metrics.width;
+                const textH = 14;
+
+                // 绘制背景框 (半透明黑底 + 白边)
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                ctx.roundRect(cx - textW / 2 - padding, topY - textH - padding, textW + padding * 2, textH + padding * 2, 4);
+                ctx.fill();
+                ctx.stroke();
+
+                // 绘制文字
+                ctx.fillStyle = '#ffffff';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(label, cx, topY - textH / 2);
+                
+                // 可选：给家具加一个高亮边框，表示选中
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+                ctx.lineWidth = 2;
+                ctx.strokeRect(t.x, t.y, t.w, t.h);
+
+                ctx.restore();
+            }
+        }
 
         ctx.restore();
     };
 
-    // 🎨 渲染循环
     const renderLoop = (timestamp: number) => {
-        // 自动判断是否需要锁定镜头
         if (GameStore.selectedSimId !== lastSelectedId.current) {
             lastSelectedId.current = GameStore.selectedSimId;
             if (GameStore.selectedSimId) {
@@ -611,17 +479,12 @@ const GameCanvas: React.FC = () => {
             }
         }
 
-        // 镜头跟随逻辑
-        if (GameStore.selectedSimId && isCameraLocked.current && !isDragging.current) {
+        if (GameStore.selectedSimId && isCameraLocked.current && !isDragging.current && GameStore.editor.mode === 'none') {
             const selectedSim = GameStore.sims.find(s => s.id === GameStore.selectedSimId);
             if (selectedSim) {
                 const zoom = cameraRef.current.zoom;
-                // 计算目标位置：将选中市民置于屏幕中心
-                // SimPos - (ScreenSize / 2) / Zoom
                 const targetX = selectedSim.pos.x - (window.innerWidth / 2) / zoom;
                 const targetY = selectedSim.pos.y - (window.innerHeight / 2) / zoom;
-                
-                // 平滑跟随
                 cameraRef.current.x = lerp(cameraRef.current.x, targetX, 0.05);
                 cameraRef.current.y = lerp(cameraRef.current.y, targetY, 0.05);
             }
@@ -641,12 +504,18 @@ const GameCanvas: React.FC = () => {
         worker.postMessage('start');
         requestRef.current = requestAnimationFrame(renderLoop);
         
-        // 初始渲染一次静态层
         renderStaticLayer();
+
+        const unsub = GameStore.subscribe(() => {
+             if (GameStore.editor.mode !== 'none' || !GameStore.editor.isDragging) {
+                 renderStaticLayer();
+             }
+        });
 
         return () => {
             worker.postMessage('stop'); worker.terminate();
             if (requestRef.current) cancelAnimationFrame(requestRef.current);
+            unsub();
         };
     }, []);
 
@@ -655,92 +524,200 @@ const GameCanvas: React.FC = () => {
             isDragging.current = true;
             hasDragged.current = false;
             lastMousePos.current = { x: e.clientX, y: e.clientY };
+
+            const zoom = cameraRef.current.zoom;
+            const worldX = e.clientX / zoom + cameraRef.current.x;
+            const worldY = e.clientY / zoom + cameraRef.current.y;
+
+            if (GameStore.editor.mode !== 'none') {
+                if (GameStore.editor.isDragging && !isPickingUp.current) {
+                    GameStore.editor.isDragging = false;
+                    const finalPos = GameStore.editor.previewPos || {x:0, y:0};
+
+                    if (GameStore.editor.placingTemplateId) {
+                        GameStore.placePlot(finalPos.x, finalPos.y);
+                    } else if (GameStore.editor.placingFurniture) {
+                        GameStore.placeFurniture(finalPos.x, finalPos.y);
+                    } else if (GameStore.editor.mode === 'plot' && GameStore.editor.selectedPlotId) {
+                        GameStore.finalizeMove('plot', GameStore.editor.selectedPlotId, dragStartPos.current);
+                    } else if (GameStore.editor.mode === 'furniture' && GameStore.editor.selectedFurnitureId) {
+                        GameStore.finalizeMove('furniture', GameStore.editor.selectedFurnitureId, dragStartPos.current);
+                    }
+                    
+                    renderStaticLayer();
+                    return;
+                }
+
+                if (!GameStore.editor.isDragging) {
+                    if (GameStore.editor.mode === 'plot') {
+                        if (GameStore.editor.placingTemplateId) return;
+
+                        const clickedRoom = GameStore.rooms.find(r => 
+                            worldX >= r.x && worldX <= r.x + r.w &&
+                            worldY >= r.y && worldY <= r.y + r.h
+                        );
+                        if (clickedRoom) {
+                            const plot = GameStore.worldLayout.find(p => clickedRoom.id.startsWith(p.id + '_'));
+                            if (plot) {
+                                GameStore.editor.selectedPlotId = plot.id;
+                                GameStore.editor.isDragging = true;
+                                isPickingUp.current = true;
+                                GameStore.editor.dragOffset = { x: worldX - plot.x, y: worldY - plot.y };
+                                GameStore.editor.previewPos = { x: plot.x, y: plot.y };
+                                dragStartPos.current = { x: plot.x, y: plot.y };
+                                renderStaticLayer(); 
+                                GameStore.notify();
+                                return;
+                            }
+                        }
+                        if (GameStore.editor.selectedPlotId) {
+                            GameStore.editor.selectedPlotId = null;
+                            GameStore.notify();
+                        }
+
+                    } else if (GameStore.editor.mode === 'furniture') {
+                        if (GameStore.editor.placingFurniture) return;
+
+                        const clickedFurn = GameStore.furniture.find(f => 
+                            worldX >= f.x && worldX <= f.x + f.w &&
+                            worldY >= f.y && worldY <= f.y + f.h
+                        );
+                        if (clickedFurn) {
+                            GameStore.editor.selectedFurnitureId = clickedFurn.id;
+                            GameStore.editor.isDragging = true;
+                            isPickingUp.current = true;
+                            GameStore.editor.dragOffset = { x: worldX - clickedFurn.x, y: worldY - clickedFurn.y };
+                            GameStore.editor.previewPos = { x: clickedFurn.x, y: clickedFurn.y };
+                            dragStartPos.current = { x: clickedFurn.x, y: clickedFurn.y };
+                            renderStaticLayer();
+                            GameStore.notify();
+                            return;
+                        }
+                        if (GameStore.editor.selectedFurnitureId) {
+                            GameStore.editor.selectedFurnitureId = null;
+                            GameStore.notify();
+                        }
+                    }
+                }
+            }
         }
     };
     
     const handleMouseMove = (e: React.MouseEvent) => {
-        lastMousePos.current = { x: e.clientX, y: e.clientY };
+        const zoom = cameraRef.current.zoom;
+        const dx = (e.clientX - lastMousePos.current.x) / zoom;
+        const dy = (e.clientY - lastMousePos.current.y) / zoom;
+        const mouseX = e.clientX / zoom + cameraRef.current.x;
+        const mouseY = e.clientY / zoom + cameraRef.current.y;
 
-        if (isDragging.current) {
-            if (Math.abs(e.movementX) > 0 || Math.abs(e.movementY) > 0) {
-                hasDragged.current = true;
-                // 一旦开始拖拽，解除镜头锁定，但不取消选中状态
-                isCameraLocked.current = false; 
+        if (Math.abs(e.movementX) > 0 || Math.abs(e.movementY) > 0) {
+            hasDragged.current = true;
+            if (isDragging.current) {
+                isCameraLocked.current = false;
             }
-            // 修正：拖拽距离需要除以 zoom
-            cameraRef.current.x -= e.movementX / cameraRef.current.zoom;
-            cameraRef.current.y -= e.movementY / cameraRef.current.zoom;
         }
+
+        if (GameStore.editor.mode !== 'none' && GameStore.editor.isDragging) {
+            const gridSize = 10; 
+            const rawX = mouseX - GameStore.editor.dragOffset.x;
+            const rawY = mouseY - GameStore.editor.dragOffset.y;
+            const newX = Math.round(rawX / gridSize) * gridSize;
+            const newY = Math.round(rawY / gridSize) * gridSize;
+
+            GameStore.editor.previewPos = { x: newX, y: newY };
+        } 
+        else if (isDragging.current) {
+            cameraRef.current.x -= dx;
+            cameraRef.current.y -= dy;
+        }else {
+            // 非拖拽状态下的悬停检测 (仅在观察模式下生效)
+            if (GameStore.editor.mode === 'none') {
+                // 使用 SpatialHashGrid 进行快速查询
+                const hit = GameStore.worldGrid.queryHit(mouseX, mouseY);
+                
+                // 我们只关心家具 (type === 'furniture')
+                if (hit && hit.type === 'furniture') {
+                    hoveredTarget.current = hit.ref;
+                    // 设置鼠标样式为“可点击/查看”
+                    if(canvasRef.current) canvasRef.current.style.cursor = 'auto'; 
+                } else {
+                    hoveredTarget.current = null;
+                    if(canvasRef.current) canvasRef.current.style.cursor = 'auto';
+                }
+            }
+        }
+        
+        lastMousePos.current = { x: e.clientX, y: e.clientY };
     };
     
     const handleMouseUp = (e: React.MouseEvent) => {
         isDragging.current = false;
 
+        if (GameStore.editor.mode !== 'none' && GameStore.editor.isDragging) {
+            if (isPickingUp.current) {
+                if (hasDragged.current) {
+                    GameStore.editor.isDragging = false;
+                    const finalPos = GameStore.editor.previewPos || {x:0, y:0};
+
+                    if (GameStore.editor.mode === 'plot' && GameStore.editor.selectedPlotId) {
+                        GameStore.finalizeMove('plot', GameStore.editor.selectedPlotId, dragStartPos.current);
+                    } else if (GameStore.editor.mode === 'furniture' && GameStore.editor.selectedFurnitureId) {
+                        GameStore.finalizeMove('furniture', GameStore.editor.selectedFurnitureId, dragStartPos.current);
+                    }
+                    renderStaticLayer();
+                } else {
+                    isPickingUp.current = false;
+                }
+            } 
+            return;
+        }
+
         if (e.button === 0 && !hasDragged.current) {
-            const canvas = canvasRef.current;
-            if (!canvas) return;
-            const rect = canvas.getBoundingClientRect();
+            const rect = canvasRef.current!.getBoundingClientRect();
             const mouseX = e.clientX - rect.left;
             const mouseY = e.clientY - rect.top;
-            
-            // 修正：点击世界坐标计算 Screen / Zoom + Cam
             const zoom = cameraRef.current.zoom;
             const worldX = mouseX / zoom + cameraRef.current.x;
             const worldY = mouseY / zoom + cameraRef.current.y;
 
-            // [优化] 点击检测
-            // 1. 优先检测 Sims (动态，遍历检测)
-            let hitSim: string | null = null; // Fix: 显式类型声明
-            // 倒序遍历，因为绘制是顺序的（下面的覆盖上面的），所以点击应该先检测上面的
-            for (let i = GameStore.sims.length - 1; i >= 0; i--) {
-                let s = GameStore.sims[i];
-                if (Math.abs(worldX - s.pos.x) < 40 && Math.abs(worldY - (s.pos.y - 20)) < 50) {
-                    hitSim = s.id; break;
+            if (GameStore.editor.mode === 'none') {
+                let hitSim: string | null = null; 
+                for (let i = GameStore.sims.length - 1; i >= 0; i--) {
+                    let s = GameStore.sims[i];
+                    if (Math.abs(worldX - s.pos.x) < 40 && Math.abs(worldY - (s.pos.y - 20)) < 50) {
+                        hitSim = s.id; break;
+                    }
                 }
-            }
-            
-            if (hitSim) {
-                // 如果点的是同一个人，说明用户想重新聚焦
-                if (GameStore.selectedSimId === hitSim) {
-                    isCameraLocked.current = true; // 手动重新锁定
-                } else {
-                    GameStore.selectedSimId = hitSim; // 切换新人，renderLoop 会自动处理锁定
-                }
-            } else {
-                // 2. 如果没点到 Sim，检测家具 (使用空间网格加速)
-                // const hitFurniture = GameStore.worldGrid.queryHit(worldX, worldY);
-                // if (hitFurniture) console.log("Clicked furniture:", hitFurniture.ref.label);
                 
-                GameStore.selectedSimId = null; 
+                if (hitSim) {
+                    if (GameStore.selectedSimId === hitSim) {
+                        isCameraLocked.current = true;
+                    } else {
+                        GameStore.selectedSimId = hitSim;
+                    }
+                } else {
+                    GameStore.selectedSimId = null; 
+                }
+                GameStore.notify();
             }
-            GameStore.notify();
         }
     };
 
     const handleMouseLeave = () => { isDragging.current = false; };
 
-    // [New] 滚轮缩放事件
     const handleWheel = (e: React.WheelEvent) => {
         const zoomSpeed = 0.001;
         const oldZoom = cameraRef.current.zoom;
-        const newZoom = Math.min(Math.max(oldZoom - e.deltaY * zoomSpeed, 0.5), 3); // Limit 0.5x to 3x
+        const newZoom = Math.min(Math.max(oldZoom - e.deltaY * zoomSpeed, 0.2), 4);
 
-        // 以鼠标为中心进行缩放
         const rect = canvasRef.current!.getBoundingClientRect();
         const mouseX = e.clientX - rect.left;
         const mouseY = e.clientY - rect.top;
         
-        // 计算缩放前的鼠标在世界坐标系的位置
         const worldX = mouseX / oldZoom + cameraRef.current.x;
         const worldY = mouseY / oldZoom + cameraRef.current.y;
         
-        // 更新缩放
         cameraRef.current.zoom = newZoom;
-        
-        // 调整相机位置，使得缩放后鼠标位置对应的世界坐标不变
-        // newWorldX = mouseX / newZoom + newCamX
-        // 我们希望 newWorldX == worldX
-        // 所以: newCamX = worldX - mouseX / newZoom
         cameraRef.current.x = worldX - mouseX / newZoom;
         cameraRef.current.y = worldY - mouseY / newZoom;
     };
@@ -748,14 +725,14 @@ const GameCanvas: React.FC = () => {
     return (
         <canvas
             ref={canvasRef}
-            width={windowSize.width}   // 使用动态宽度
-            height={windowSize.height} // 使用动态高度
+            width={windowSize.width}   
+            height={windowSize.height}
             className="block bg-[#121212] cursor-crosshair"
             onMouseDown={handleMouseDown}
             onMouseMove={handleMouseMove}
             onMouseUp={handleMouseUp}
             onMouseLeave={handleMouseLeave}
-            onWheel={handleWheel} // 绑定滚轮事件
+            onWheel={handleWheel}
             onContextMenu={(e) => e.preventDefault()}
         />
     );

@@ -1,11 +1,40 @@
-import { Sim } from '../Sim';
+import type { Sim } from '../Sim'; 
 import { GameStore } from '../simulation';
-import { CONFIG, FURNITURE } from '../../constants';
+import { CONFIG } from '../../constants'; 
 import { minutes } from '../simulationHelpers';
 import { Furniture } from '../../types';
 
-
 export const DecisionLogic = {
+    // [新增] 检查目标位置或家具是否是私人领地
+    isRestricted(sim: Sim, target: { x: number, y: number } | Furniture): boolean {
+        let homeId: string | undefined;
+
+        // 如果是家具，直接检查家具的归属
+        if ('homeId' in target && (target as Furniture).homeId) {
+            homeId = (target as Furniture).homeId;
+        } else {
+            // 如果是坐标，检查是否落在某个住房单元内
+            const unit = GameStore.housingUnits.find(u => 
+                target.x >= u.x && target.x <= u.x + u.area.w &&
+                target.y >= u.y && target.y <= u.y + u.area.h
+            );
+            if (unit) homeId = unit.id;
+        }
+
+        if (homeId) {
+            // 如果是自己的家，不限制
+            if (sim.homeId === homeId) return false;
+            
+            // 查找该房屋的主人（假设只要有住户，就不是空房）
+            const isOccupied = GameStore.sims.some(s => s.homeId === homeId);
+            
+            // 如果房子有人住，且不是我家 -> 禁止入内
+            if (isOccupied) return true;
+        }
+
+        return false;
+    },
+
     decideAction(sim: Sim) {
         // 1. 检查紧急需求 (< 40)
         let critical = [
@@ -30,36 +59,23 @@ export const DecisionLogic = {
             { id: 'fun', score: (100 - sim.needs.fun) * 1.2, type: 'fun' },
         ];
 
-        // [新增] 复杂的社交需求权重计算
-        // 基础分：需求缺口
         let socialScore = (100 - sim.needs.social) * 1.5;
-
-        // MBTI 修正：E人更容易发起社交，I人较被动
         if (sim.mbti.startsWith('E')) socialScore *= 1.4;
         else if (sim.mbti.startsWith('I')) socialScore *= 0.8;
-
-        // 星座修正：风象(Air)和火象(Fire)更主动
         if (['air', 'fire'].includes(sim.zodiac.element)) socialScore *= 1.2;
+        if (sim.appearanceScore > 70) socialScore *= 1.2; 
+        if (sim.eq > 70) socialScore *= 1.3; 
 
-        // [新增] 属性修正：魅力和情商高的人更喜欢社交
-        if (sim.appearanceScore > 70) socialScore *= 1.2; // 颜值高更自信
-        if (sim.eq > 70) socialScore *= 1.3; // 情商高更擅长
-
-        // 人生目标修正
         if (['万人迷', '派对之王', '交际花', '政坛领袖'].some(g => sim.lifeGoal.includes(g))) {
             socialScore *= 1.5; 
         } else if (['隐居', '独处', '黑客', '作家'].some(g => sim.lifeGoal.includes(g))) {
             socialScore *= 0.6; 
         }
-
-        // 心情修正
         if (sim.mood < 30) socialScore *= 0.3;
 
         scores.push({ id: 'social', score: socialScore, type: 'social' });
 
-
-        // [核心逻辑] 只有无业游民(自由职业)才会尝试赚钱 (Side Hustle)
-        if (sim.job.id === 'unemployed') {
+        if (sim.job.id === 'unemployed' && !['Infant', 'Toddler', 'Child'].includes(sim.ageStage)) {
             let moneyDesire = 0;
             if (sim.money < 500) moneyDesire = 200; 
             else if (sim.money < 2000) moneyDesire = 100;
@@ -74,37 +90,30 @@ export const DecisionLogic = {
             }
         }
 
-        // 技能练习加分
         for (let skillKey in sim.skills) {
             let talent = sim.skillModifiers[skillKey] || 1;
             let skillScore = (100 - sim.needs.fun) * 0.5 * talent;
             scores.push({ id: `skill_${skillKey}`, score: skillScore, type: 'obj' });
         }
 
-        // 特殊活动加分
         if (sim.needs.fun < 50 && sim.money > 100) {
             scores.push({ id: 'cinema_3d', score: 90, type: 'obj' });
             
-            // [新增] 高体质的人更喜欢去健身房
             let gymScore = 60;
             if (sim.constitution > 70) gymScore += 30;
             scores.push({ id: 'gym_run', score: gymScore, type: 'obj' });
         }
         
-        // [新增] 艺术爱好者/高智商加分
         if (sim.needs.fun < 70) {
              let artScore = 85;
-             // 高智商或高创意的人更喜欢去美术馆/看书
              if (sim.mbti.includes('N') || sim.skills.creativity > 20 || sim.iq > 70) artScore += 30;
              scores.push({ id: 'art', score: artScore, type: 'obj' });
         }
         
-        // 孩子气或心情不好加分 (去游乐场)
         if (sim.needs.fun < 60 && (sim.mbti.includes('P') || sim.mood < 40)) {
             scores.push({ id: 'play', score: 80, type: 'obj' });
         }
 
-        // 3. 做出决策
         scores.sort((a, b) => b.score - a.score);
         let choice = scores[Math.floor(Math.random() * Math.min(scores.length, 3))];
 
@@ -115,14 +124,35 @@ export const DecisionLogic = {
         } else {
             DecisionLogic.wander(sim);
         }
+
+        // 学生做作业决策
+        if (['Child', 'Teen'].includes(sim.ageStage) && sim.job.id === 'unemployed') {
+            // 勤奋的学生(J)或者害怕挂科(成绩差)会倾向于做作业
+            let studyDesire = 0;
+            if (sim.mbti.includes('J')) studyDesire += 40;
+            if ((sim.schoolPerformance || 60) < 60) studyDesire += 50; // 临阵磨枪
+            
+            // 下午/晚上才有做作业的想法
+            const hour = GameStore.time.hour;
+            if (hour > 16 && hour < 21) studyDesire += 30;
+
+            if (studyDesire > 60) {
+                // 寻找课桌
+                DecisionLogic.findObject(sim, sim.ageStage === 'Teen' ? 'study_high' : 'study');
+                return;
+            }
+        }
     },
 
     findSideHustle(sim: Sim) {
         let options: { type: string; target: Furniture }[] = [];
 
-        // 1. Coding/Writing (Need PC)
         if (sim.skills.logic > 5 || sim.skills.creativity > 5) {
-            let pcs = FURNITURE.filter(f => f.label.includes('电脑') && (!f.reserved || f.reserved === sim.id));
+            let pcs = GameStore.furniture.filter(f => f.label.includes('电脑') && (!f.reserved || f.reserved === sim.id));
+            
+            // [新增] 过滤掉别人家里的电脑
+            pcs = pcs.filter(f => !DecisionLogic.isRestricted(sim, f));
+
             if (pcs.length > 0) {
                 const netCafePcs = pcs.filter(p => p.label.includes('网吧'));
                 const homePcs = pcs.filter(p => !p.label.includes('网吧'));
@@ -137,13 +167,13 @@ export const DecisionLogic = {
             }
         }
         
-
-        // 2. Fishing (Need Lake)
         let lake = GameStore.furnitureIndex.get('fishing')?.[0]; 
         if (lake) options.push({ type: 'lake', target: lake });
 
-        // 3. Gardening (Need Flower)
         let flowers = GameStore.furnitureIndex.get('gardening') || [];
+        // 过滤私人花园
+        flowers = flowers.filter(f => !DecisionLogic.isRestricted(sim, f));
+
         if (flowers.length > 0) options.push({ type: 'garden', target: flowers[Math.floor(Math.random() * flowers.length)] });
 
         if (options.length > 0) {
@@ -210,6 +240,17 @@ export const DecisionLogic = {
 
         if (candidates.length) {
             candidates = candidates.filter((f: Furniture)=> {
+                 // 过滤私人领地
+                 if (DecisionLogic.isRestricted(sim, f)) return false;
+
+                 // [修改] 关键逻辑：如果是食物或生存必需品，且没钱，过滤掉收费项目
+                 if (type === 'hunger' && sim.money < 20) {
+                     // 如果这东西要钱（cost > 0），就别去了
+                     if (f.cost && f.cost > 0) return false;
+                     // 还要过滤掉那种 utility 是 buy_food 的（通常隐含收费）
+                     if (f.utility === 'buy_food' || f.utility === 'buy_drink') return false;
+                 }
+
                  if (f.cost && f.cost > sim.money) return false;
                  if (f.reserved && f.reserved !== sim.id) return false;
                  if (!f.multiUser) {
@@ -264,6 +305,13 @@ export const DecisionLogic = {
 
             let partner = others[Math.floor(Math.random() * poolSize)];
             
+            // [新增] 检查目标是否在私人领地内 (如果我不能进他家，就不能去找他)
+            if (DecisionLogic.isRestricted(sim, partner.pos)) {
+                // 尝试找下一个
+                DecisionLogic.wander(sim);
+                return;
+            }
+
             const angle = Math.random() * Math.PI * 2;
             const socialDistance = 40;
             
@@ -282,18 +330,23 @@ export const DecisionLogic = {
         let minX = 50, maxX = CONFIG.CANVAS_W - 100;
         let minY = 100, maxY = CONFIG.CANVAS_H - 100;
         
-        if (sim.needs.energy < 60) {
-            const range = 500;
-            minX = Math.max(50, sim.pos.x - range);
-            maxX = Math.min(CONFIG.CANVAS_W - 50, sim.pos.x + range);
-            minY = Math.max(50, sim.pos.y - range);
-            maxY = Math.min(CONFIG.CANVAS_H - 50, sim.pos.y + range);
+        // 尝试寻找一个可达的目标点 (最多尝试5次)
+        for (let i = 0; i < 5; i++) {
+            let tx = minX + Math.random() * (maxX - minX);
+            let ty = minY + Math.random() * (maxY - minY);
+            
+            // [新增] 检查该点是否在受限区域
+            if (!DecisionLogic.isRestricted(sim, { x: tx, y: ty })) {
+                sim.target = { x: tx, y: ty };
+                break;
+            }
+        }
+        
+        // 如果都没找到（极少情况），就待在原地发呆
+        if (!sim.target) {
+            sim.target = { ...sim.pos };
         }
 
-        sim.target = { 
-            x: minX + Math.random() * (maxX - minX), 
-            y: minY + Math.random() * (maxY - minY) 
-        };
         sim.action = 'wandering';
         sim.actionTimer = minutes(0);
     }
