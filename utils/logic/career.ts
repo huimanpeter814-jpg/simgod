@@ -169,7 +169,6 @@ export const CareerLogic = {
             // (放宽限制：允许 Lv2 入职，防止因为没有 Lv1 职位导致无法就职)
             const validJobs = JOBS.filter(j => {
                 if (j.companyType !== jobType) return false;
-                if (j.level > 2) return false; // 只允许初级或中级入职
                 
                 // 检查容量
                 const capacity = this.getDynamicJobCapacity(j);
@@ -178,12 +177,21 @@ export const CareerLogic = {
             });
 
             if (validJobs.length > 0) {
-                // 在符合条件的职位中随机选一个
-                assignedJob = validJobs[Math.floor(Math.random() * validJobs.length)];
-                
-                // 增加日志记录，方便调试
-                // console.log(`[JobAssign] ${sim.name} -> ${jobType} (Score: ${candidate.score.toFixed(1)})`);
-                break; // 找到工作了，跳出循环
+
+                // 权重算法示例：等级越高，被选中的概率越低
+                const weightedPool: Job[] = [];
+                validJobs.forEach(job => {
+                    let weight = 10;
+                    if (job.level === 2) weight = 6;
+                    if (job.level === 3) weight = 3;
+                    if (job.level === 4) weight = 1;
+                    
+                    // 将职位按权重多次推入池子，增加被随机到的概率
+                    for(let k=0; k<weight; k++) weightedPool.push(job);
+                });
+
+                assignedJob = weightedPool[Math.floor(Math.random() * weightedPool.length)];
+                break;
             }
         }
 
