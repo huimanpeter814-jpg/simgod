@@ -3,6 +3,59 @@ export interface Vector2 {
   y: number;
 }
 
+// 1. 定义核心 Enums 以替换 Magic Strings
+export enum SimAction {
+    Idle = 'idle',
+    Working = 'working',
+    Sleeping = 'sleeping',
+    Eating = 'eating',
+    Talking = 'talking',
+    Using = 'using',
+    Moving = 'moving',
+    Wandering = 'wandering',
+    Commuting = 'commuting',
+    CommutingSchool = 'commuting_school', // 上学通勤
+    Schooling = 'schooling',              // 在校学习
+    WatchingMovie = 'watching_movie',
+    Phone = 'phone',
+    PlayingHome = 'playing_home',
+    Following = 'following',
+    MovingHome = 'moving_home',
+    EatingOut = 'eat_out'
+}
+
+export enum JobType {
+    Unemployed = 'unemployed',
+    Internet = 'internet',
+    Design = 'design',
+    Business = 'business',
+    Store = 'store',
+    Restaurant = 'restaurant',
+    Library = 'library',
+    School = 'school',
+    Nightlife = 'nightlife'
+}
+
+export enum NeedType {
+    Hunger = 'hunger',
+    Energy = 'energy',
+    Fun = 'fun',
+    Social = 'social',
+    Bladder = 'bladder',
+    Hygiene = 'hygiene',
+    Comfort = 'comfort'
+}
+
+export enum AgeStage {
+    Infant = 'Infant',
+    Toddler = 'Toddler',
+    Child = 'Child',
+    Teen = 'Teen',
+    Adult = 'Adult',
+    MiddleAged = 'MiddleAged',
+    Elder = 'Elder'
+}
+
 export interface Furniture {
   id: string;
   x: number;
@@ -44,7 +97,6 @@ export interface HousingUnit {
     cost: number;     
     type: 'public_housing' | 'apartment' | 'villa'; 
     area: { x: number, y: number, w: number, h: number }; 
-    // Add optional max bounds for runtime calculation convenience
     maxX?: number;
     maxY?: number;
 }
@@ -64,49 +116,74 @@ export interface WorldPlot {
     templateId: string;
     x: number;
     y: number;
+    width?: number; 
+    height?: number;
+    customName?: string;  
+    customColor?: string; 
+    customType?: string;  
 }
 
-// [修改] 增强的编辑器状态接口
 export interface EditorState {
-    mode: 'none' | 'plot' | 'furniture';
-    selectedPlotId: string | null;
-    selectedFurnitureId: string | null;
-    
-    // 拖拽状态
-    isDragging: boolean;
-    dragOffset: { x: number, y: number };
-    
-    // 新增放置状态
-    placingTemplateId: string | null; // 正在放置的地皮模板ID
-    placingFurniture: Partial<Furniture> | null; // 正在放置的家具数据
-    
-    // 预览坐标 (用于 Canvas 渲染预览框)
-    previewPos: { x: number, y: number } | null;
+  mode: 'none' | 'plot' | 'furniture' | 'floor'; 
+  selectedPlotId: string | null;
+  selectedFurnitureId: string | null;
+  selectedRoomId: string | null;
+  
+  isDragging: boolean;
+  dragOffset: { x: number, y: number };
+  
+  placingTemplateId: string | null;
+  placingFurniture: Partial<Furniture> | null;
+  
+  drawingPlot: {
+      startX: number;
+      startY: number;
+      currX: number;
+      currY: number;
+      templateId: string;
+  } | null;
+
+  drawingFloor: {
+      startX: number;
+      startY: number;
+      currX: number;
+      currY: number;
+      pattern: string;
+      color: string;
+      label: string;
+      hasWall: boolean; 
+  } | null;
+
+  previewPos: { x: number, y: number } | null;
+}
+
+export interface EditorAction {
+    type: 'add' | 'remove' | 'move' | 'modify';
+    entityType: 'plot' | 'furniture' | 'room';
+    id: string;
+    prevData?: any; 
+    newData?: any;  
 }
 
 export interface RoomDef {
-    id: string;
-    x: number;
-    y: number;
-    w: number;
-    h: number;
-    label: string;
-    color: string;
-    pixelPattern?: string;
-    imagePath?: string;
-    homeId?: string;
+  id: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  label: string;
+  color: string;
+  pixelPattern?: string;
+  imagePath?: string;
+  homeId?: string;
+  isCustom?: boolean;
+  hasWall?: boolean; 
 }
 
-export interface Needs {
-  hunger: number;
-  energy: number;
-  fun: number;
-  social: number;
-  bladder: number;
-  hygiene: number;
-  comfort?: number;
-  [key: string]: number | undefined;
-}
+// Update Needs to use dynamic keys but generally match NeedType
+export type Needs = {
+  [key in NeedType]: number;
+} & { [key: string]: number | undefined };
 
 export interface Skills {
   cooking: number;
@@ -143,7 +220,7 @@ export interface Job {
   startHour: number;
   endHour: number;
   vacationMonths?: number[]; 
-  companyType?: string; 
+  companyType?: JobType | string; // Use Enum
 }
 
 export interface Buff {
@@ -168,8 +245,6 @@ export interface Memory {
     text: string;
     relatedSimId?: string; 
 }
-
-export type AgeStage = 'Infant' | 'Toddler' | 'Child' | 'Teen' | 'Adult' | 'MiddleAged' | 'Elder';
 
 export interface SimData {
   id: string;
@@ -198,7 +273,7 @@ export interface SimData {
   zodiac: Zodiac;
   
   age: number;
-  ageStage: AgeStage; 
+  ageStage: AgeStage; // Use Enum
   health: number; 
   
   partnerId: string | null;
@@ -230,7 +305,7 @@ export interface SimData {
 
   memories: Memory[];
 
-  action: string;
+  action: SimAction | string; // Use Enum
   bubble?: { text: string | null; type: string; timer: number };
   target?: Vector2 | null;
   interactionTarget?: any;
@@ -243,7 +318,6 @@ export interface LogEntry {
   time: string;
   text: string;
   type: 'normal' | 'sys' | 'act' | 'chat' | 'love' | 'bad' | 'jealous' | 'rel_event' | 'money' | 'family';
-  // [修改] 更新后的分类
   category: 'sys' | 'chat' | 'rel' | 'life';
   isAI: boolean;
   simName?: string;
@@ -256,4 +330,12 @@ export interface GameTime {
   hour: number;
   minute: number;
   speed: number;
+}
+
+export interface SaveMetadata {
+    slot: number;
+    timestamp: number;
+    timeLabel: string;
+    pop: number;
+    realTime: string;
 }

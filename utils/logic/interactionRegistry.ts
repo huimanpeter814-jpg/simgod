@@ -1,5 +1,5 @@
 import { ITEMS, BUFFS } from '../../constants';
-import { Furniture } from '../../types';
+import { Furniture, NeedType, SimAction, AgeStage } from '../../types';
 import type { Sim } from '../Sim';
 import { SchoolLogic } from './school';
 
@@ -9,19 +9,28 @@ export interface InteractionHandler {
     duration: number; // 基础分钟数
     getDuration?: (sim: Sim, obj: Furniture) => number; // 动态计算时长
     getVerb?: (sim: Sim, obj: Furniture) => string; // 动态计算动作名
-    onStart?: (sim: Sim, obj: Furniture) => boolean; // 返回 false 表示交互失败(如钱不够)
+    onStart?: (sim: Sim, obj: Furniture) => boolean; // 返回 false 表示交互失败
     onUpdate?: (sim: Sim, obj: Furniture, f: number, getRate: (m: number) => number) => void;
     onFinish?: (sim: Sim, obj: Furniture) => void;
 }
 
 // === 常量定义 ===
+// [优化] 使用 NeedType 作为 Key
 export const RESTORE_TIMES: Record<string, number> = {
-    bladder: 15, hygiene: 25, hunger: 45, energy_sleep: 420, energy_nap: 60,
-    fun: 90, social: 60, art: 120, play: 60, default: 60
+    [NeedType.Bladder]: 15, 
+    [NeedType.Hygiene]: 25, 
+    [NeedType.Hunger]: 45, 
+    energy_sleep: 420, 
+    energy_nap: 60,
+    [NeedType.Fun]: 90, 
+    [NeedType.Social]: 60, 
+    art: 120, 
+    play: 60, 
+    default: 60
 };
 
 // === 辅助函数 ===
-const genericRestore = (needType: string, timeKey?: string) => {
+const genericRestore = (needType: NeedType, timeKey?: string) => {
     return (sim: Sim, obj: Furniture, f: number, getRate: (m: number) => number) => {
         const t = timeKey ? RESTORE_TIMES[timeKey] : (RESTORE_TIMES[needType] || RESTORE_TIMES.default);
         if (sim.needs[needType] !== undefined) {
@@ -35,7 +44,12 @@ export const INTERACTIONS: Record<string, InteractionHandler> = {
     'buy_drink': {
         verb: '咕嘟咕嘟', duration: 5,
         onStart: (sim, obj) => {
-            if (sim.money >= 5) { sim.money -= 5; sim.needs.hunger += 5; sim.needs.fun += 5; return true; }
+            if (sim.money >= 5) { 
+                sim.money -= 5; 
+                sim.needs[NeedType.Hunger] += 5; 
+                sim.needs[NeedType.Fun] += 5; 
+                return true; 
+            }
             sim.say("没钱买水...", 'bad'); return false;
         }
     },
@@ -49,7 +63,6 @@ export const INTERACTIONS: Record<string, InteractionHandler> = {
     'buy_item': {
         verb: '购物 🛍️', duration: 15,
         onStart: (sim, obj) => {
-            // 检查钱够不够
             const cost = obj.cost || 50; 
             if (sim.money < cost) {
                 sim.say("太贵了...", 'bad');
@@ -58,19 +71,16 @@ export const INTERACTIONS: Record<string, InteractionHandler> = {
             return true;
         },
         onFinish: (sim, obj) => {
-            // 这里主要处理动作结束后的反馈，具体的扣钱和属性逻辑移到了 Sim.ts 的 buyItem
-            // 或者通过 startInteraction 里的 auto buy 逻辑触发
             sim.say("买买买! ✨", 'act');
-            sim.needs.fun += 20;
+            sim.needs[NeedType.Fun] += 20;
         }
     },
     'run': {
         verb: '健身', duration: 60,
         onUpdate: (sim, obj, f, getRate) => {
             sim.skills.athletics += 0.08 * f;
-            sim.needs.energy -= getRate(120);
-            sim.needs.hygiene -= getRate(240);
-            // [新增] 跑步提升体质
+            sim.needs[NeedType.Energy] -= getRate(120);
+            sim.needs[NeedType.Hygiene] -= getRate(240);
             sim.constitution = Math.min(100, sim.constitution + 0.05 * f);
         }
     },
@@ -78,35 +88,32 @@ export const INTERACTIONS: Record<string, InteractionHandler> = {
         verb: '瑜伽', duration: 60,
         onUpdate: (sim, obj, f, getRate) => {
             sim.skills.athletics += 0.05 * f;
-            sim.needs.energy -= getRate(120);
-            sim.needs.hygiene -= getRate(240);
-            // [新增] 瑜伽提升体质
+            sim.needs[NeedType.Energy] -= getRate(120);
+            sim.needs[NeedType.Hygiene] -= getRate(240);
             sim.constitution = Math.min(100, sim.constitution + 0.03 * f);
         }
     },
     'lift': {
         verb: '举铁 💪', duration: 45,
         onUpdate: (sim, obj, f, getRate) => {
-            sim.skills.athletics += 0.1 * f; // 力量训练技能涨得快
-            sim.needs.energy -= getRate(300); // 但更累
-            sim.needs.hygiene -= getRate(300);
-            // [新增] 举铁大幅提升体质
+            sim.skills.athletics += 0.1 * f; 
+            sim.needs[NeedType.Energy] -= getRate(300); 
+            sim.needs[NeedType.Hygiene] -= getRate(300);
             sim.constitution = Math.min(100, sim.constitution + 0.08 * f);
         }
     },
     'gardening': {
         verb: '修剪枝叶 🌿', duration: 40,
         onUpdate: (sim, obj, f, getRate) => {
-            sim.skills.gardening += 0.08 * f; // 技能增加
-            sim.needs.fun += getRate(150);
+            sim.skills.gardening += 0.08 * f; 
+            sim.needs[NeedType.Fun] += getRate(150);
         }
     },
-
     'fishing': {
         verb: '钓鱼 🎣', duration: 60,
         onUpdate: (sim, obj, f, getRate) => {
-            sim.skills.fishing += 0.08 * f; // 技能增加
-            sim.needs.fun += getRate(120);
+            sim.skills.fishing += 0.08 * f; 
+            sim.needs[NeedType.Fun] += getRate(120);
         },
         onFinish: (sim) => {
             if (Math.random() > 0.6) {
@@ -119,10 +126,11 @@ export const INTERACTIONS: Record<string, InteractionHandler> = {
     'cooking': {
         verb: '烹饪', duration: 90,
         onStart: (sim) => { 
+            // [修复] 使用 sim 方法代替直接实例化
             if (sim.interactionTarget?.utility === 'work') {
-                sim.action = 'working';
+                sim.enterWorkingState();
             } else {
-                sim.action = 'using';
+                sim.enterInteractionState(SimAction.Using);
             }
             return true; 
         },
@@ -134,8 +142,7 @@ export const INTERACTIONS: Record<string, InteractionHandler> = {
         verb: '看展览 🎨', duration: 90,
         onStart: (sim) => { sim.addBuff(BUFFS.art_inspired); return true; },
         onUpdate: (sim, obj, f, getRate) => {
-            sim.needs.fun += getRate(RESTORE_TIMES.art);
-            // [新增] 看展提升创意和技能
+            sim.needs[NeedType.Fun] += getRate(RESTORE_TIMES.art);
             sim.skills.creativity += 0.03 * f;
             sim.creativity = Math.min(100, sim.creativity + 0.05 * f);
         }
@@ -144,32 +151,29 @@ export const INTERACTIONS: Record<string, InteractionHandler> = {
         verb: '绘画 🖌️', duration: 90,
         onUpdate: (sim, obj, f, getRate) => {
             sim.skills.creativity += 0.08 * f;
-            // [新增] 绘画提升创意
             sim.creativity = Math.min(100, sim.creativity + 0.08 * f);
-            sim.needs.fun += getRate(120);
+            sim.needs[NeedType.Fun] += getRate(120);
         }
     },
     'play': {
         verb: '玩耍 🎈', duration: 45,
         onStart: (sim) => { sim.addBuff(BUFFS.playful); return true; },
         onUpdate: (sim, obj, f, getRate) => {
-            sim.needs.fun += getRate(RESTORE_TIMES.play);
-            sim.needs.energy -= getRate(180);
-            sim.needs.hygiene -= getRate(300);
+            sim.needs[NeedType.Fun] += getRate(RESTORE_TIMES.play);
+            sim.needs[NeedType.Energy] -= getRate(180);
+            sim.needs[NeedType.Hygiene] -= getRate(300);
         }
     },
     'dance': {
         verb: '跳舞 💃', duration: 30,
         onUpdate: (sim, obj, f, getRate) => {
             sim.skills.dancing += 0.1 * f;
-            // [新增] 跳舞提升魅力和体质
             sim.appearanceScore = Math.min(100, sim.appearanceScore + 0.02 * f);
             sim.constitution = Math.min(100, sim.constitution + 0.02 * f);
-            sim.needs.fun += getRate(60);
-            sim.needs.energy -= getRate(200); 
+            sim.needs[NeedType.Fun] += getRate(60);
+            sim.needs[NeedType.Energy] -= getRate(200); 
         }
     },
-
    'work': {
         verb: '工作 💻', 
         duration: 480, 
@@ -178,15 +182,14 @@ export const INTERACTIONS: Record<string, InteractionHandler> = {
         
         onStart: (sim, obj) => {
             if (sim.isSideHustle) {
-                sim.action = 'using'; 
+                sim.enterInteractionState(SimAction.Using);
             } else {
-                sim.action = 'working'; 
+                sim.enterWorkingState();
             }
             return true;
         },
 
         onUpdate: (sim, obj, f, getRate) => {
-            // [新增] 工作中缓慢提升智商或创意
             if (sim.skills.logic > sim.skills.creativity) {
                 sim.iq = Math.min(100, sim.iq + 0.01 * f);
             } else {
@@ -202,75 +205,72 @@ export const INTERACTIONS: Record<string, InteractionHandler> = {
                 const earned = 50 + skillVal * 5; 
                 sim.skills.logic += 0.5;
                 sim.skills.creativity += 0.5;
-                // [新增] 兼职成功提升智商
                 sim.iq = Math.min(100, sim.iq + 0.2);
                 sim.earnMoney(earned, 'side_hustle_pc');
             }
         }
     },
-
-    'cinema_': { // 前缀匹配
+    'cinema_': { 
         verb: '看电影 🎬', duration: 120,
         onStart: (sim) => { sim.addBuff(BUFFS.movie_fun); return true; },
         onUpdate: (sim, obj, f, getRate) => {
-             sim.needs.fun += getRate(120);
-             sim.needs.energy -= getRate(600);
-             // [新增] 看电影略微提升情商(共情)
+             sim.needs[NeedType.Fun] += getRate(120);
+             sim.needs[NeedType.Energy] -= getRate(600);
              sim.eq = Math.min(100, sim.eq + 0.02 * f);
         }
     },
-    // Generic Needs
-    'energy': {
+    // [优化] 使用 NeedType.Energy
+    [NeedType.Energy]: {
         verb: '睡觉 💤', duration: 420,
         getVerb: (sim, obj) => (obj.label.includes('沙发') || obj.label.includes('长椅')) ? '小憩' : '睡觉 💤',
         getDuration: (sim, obj) => {
              if (obj.label.includes('沙发') || obj.label.includes('长椅')) {
-                 const missing = 100 - sim.needs.energy;
+                 const missing = 100 - sim.needs[NeedType.Energy];
                  return (missing / 100) * RESTORE_TIMES.energy_nap * 1.1; 
              }
-             const missing = 100 - sim.needs.energy;
+             const missing = 100 - sim.needs[NeedType.Energy];
              return (missing / 100) * RESTORE_TIMES.energy_sleep * 1.1; 
         },
         onStart: (sim, obj) => { 
-            if (obj.label.includes('沙发')) sim.action = 'using'; 
-            else sim.action = 'sleeping'; 
+            // [修复] 使用 sim 方法
+            if (obj.label.includes('沙发')) sim.enterInteractionState(SimAction.Using);
+            else sim.enterInteractionState(SimAction.Sleeping);
             return true; 
         },
         onUpdate: (sim, obj, f, getRate) => {
             let timeKey = (obj.label.includes('沙发') || obj.label.includes('长椅')) ? 'energy_nap' : 'energy_sleep';
             let t = RESTORE_TIMES[timeKey];
-            if (sim.needs.energy !== undefined) sim.needs.energy += getRate(t);
-            if (timeKey === 'energy_nap') sim.needs.comfort = 100;
+            if (sim.needs[NeedType.Energy] !== undefined) sim.needs[NeedType.Energy] += getRate(t);
+            if (timeKey === 'energy_nap') sim.needs[NeedType.Comfort] = 100;
         }
     },
     'shower': {
         verb: '洗澡 🚿', duration: 20,
-        onStart: (sim) => { sim.action = 'using'; return true; }, 
+        onStart: (sim) => { sim.enterInteractionState(SimAction.Using); return true; }, 
         onUpdate: (sim, obj, f, getRate) => {
-            sim.needs.hygiene += getRate(20); 
-            sim.needs.energy += getRate(400); 
-            sim.needs.comfort = 100;
-            // [新增] 洗澡略微恢复魅力（变干净了）
+            sim.needs[NeedType.Hygiene] += getRate(20); 
+            sim.needs[NeedType.Energy] += getRate(400); 
+            sim.needs[NeedType.Comfort] = 100;
             if (sim.appearanceScore < 80) sim.appearanceScore += 0.05 * f;
         }
     },
-    'hunger': {
+    [NeedType.Hunger]: {
         verb: '用餐 🍴', duration: 30,
-        onStart: (sim) => { sim.action = 'eating'; return true; },
-        onUpdate: genericRestore('hunger')
+        onStart: (sim) => { sim.enterInteractionState(SimAction.Eating); return true; },
+        onUpdate: genericRestore(NeedType.Hunger)
     },
-    'comfort': {
+    [NeedType.Comfort]: {
         verb: '休息', 
         duration: 60,
         getVerb: () => '小憩 💤',
         onStart: (sim) => { 
-            sim.action = 'using'; 
+            sim.enterInteractionState(SimAction.Using);
             return true; 
         },
         onUpdate: (sim, obj, f, getRate) => {
-            sim.needs.energy += getRate(RESTORE_TIMES.energy_nap);
-            if (sim.needs.comfort !== undefined) sim.needs.comfort = 100;
-            sim.needs.fun += getRate(60);
+            sim.needs[NeedType.Energy] += getRate(RESTORE_TIMES.energy_nap);
+            if (sim.needs[NeedType.Comfort] !== undefined) sim.needs[NeedType.Comfort] = 100;
+            sim.needs[NeedType.Fun] += getRate(60);
         }
     },
     'eat_out': {
@@ -281,9 +281,9 @@ export const INTERACTIONS: Record<string, InteractionHandler> = {
              return true;
         },
         onUpdate: (sim, obj, f, getRate) => {
-            sim.needs.hunger += getRate(40); 
-            sim.needs.fun += getRate(100);
-            sim.needs.social += getRate(200); 
+            sim.needs[NeedType.Hunger] += getRate(40); 
+            sim.needs[NeedType.Fun] += getRate(100);
+            sim.needs[NeedType.Social] += getRate(200); 
         },
         onFinish: (sim) => {
             sim.addBuff(BUFFS.good_meal);
@@ -293,17 +293,13 @@ export const INTERACTIONS: Record<string, InteractionHandler> = {
         verb: '吃点心 🌭', 
         duration: 15,
         onStart: (sim, obj) => {
-            // 在家里的冰箱拿东西通常不需要 cost，这里主要针对路边摊
             const cost = 20; 
             if (sim.money >= cost) { 
                 sim.money -= cost; 
-                sim.needs.hunger += 40; 
-                sim.needs.fun += 10;    
+                sim.needs[NeedType.Hunger] += 40; 
+                sim.needs[NeedType.Fun] += 10;    
                 return true; 
             }
-            
-            // 穷人保护机制：如果太饿了(低于20)，也许好心人会施舍? 
-            // 或者直接拒绝，让他们被迫去找免费的冰箱/食堂
             sim.say("买不起吃的...", 'bad'); 
             return false;
         }
@@ -321,9 +317,9 @@ export const INTERACTIONS: Record<string, InteractionHandler> = {
         onUpdate: (sim, obj, f, getRate) => {
             const u = obj.utility;
             const t = RESTORE_TIMES[u] || RESTORE_TIMES.default;
-            if (sim.needs[u] !== undefined) sim.needs[u] += getRate(t);
-
-            // [新增] 照镜子提升魅力
+            // [Fix] 安全检查 Needs
+            if (sim.needs[u as NeedType] !== undefined) sim.needs[u as NeedType] += getRate(t);
+            
             if (obj.label.includes('试妆') || obj.label.includes('镜')) {
                 sim.appearanceScore = Math.min(100, sim.appearanceScore + 0.1 * f);
             }
@@ -332,22 +328,21 @@ export const INTERACTIONS: Record<string, InteractionHandler> = {
     'nap_crib': {
         verb: '午睡 👶', duration: 120,
         onUpdate: (sim, obj, f, getRate) => {
-            sim.needs.energy += getRate(120);
-            if (sim.ageStage === 'Infant') sim.health += 0.01 * f;
+            sim.needs[NeedType.Energy] += getRate(120);
+            if (sim.ageStage === AgeStage.Infant) sim.health += 0.01 * f;
         }
     },
     'play_blocks': {
         verb: '堆积木 🧱', duration: 40,
         onUpdate: (sim, obj, f, getRate) => {
-            sim.needs.fun += getRate(60);
-            sim.creativity += 0.05 * f; // 启蒙
-            sim.needs.social += getRate(180); // 恢复速度比真人聊天慢一些
+            sim.needs[NeedType.Fun] += getRate(60);
+            sim.creativity += 0.05 * f; 
+            sim.needs[NeedType.Social] += getRate(180); 
         }
     },
     'study': {
         verb: '写作业 📝', duration: 60,
         onStart: (sim) => {
-            // 只有好学生或心情好才愿意做
             if (sim.mood < 40 && !sim.mbti.includes('J')) {
                 sim.say("不想写...", 'bad');
                 return false;
@@ -355,7 +350,7 @@ export const INTERACTIONS: Record<string, InteractionHandler> = {
             return true;
         },
         onUpdate: (sim, obj, f, getRate) => {
-            sim.needs.fun -= getRate(200); // 写作业很枯燥
+            sim.needs[NeedType.Fun] -= getRate(200); 
         },
         onFinish: (sim) => {
             SchoolLogic.doHomework(sim);
@@ -373,8 +368,7 @@ export const INTERACTIONS: Record<string, InteractionHandler> = {
     'eat_canteen': {
         verb: '吃食堂 🍛', duration: 20,
         onStart: (sim, obj) => {
-            // 如果是学生（甚至可以放宽到穷人），免费吃饭
-            const isStudent = ['Child', 'Teen'].includes(sim.ageStage);
+            const isStudent = [AgeStage.Child, AgeStage.Teen].includes(sim.ageStage);
             
             if (!isStudent && sim.money < 10) { 
                 sim.say("饭卡没钱了...", 'bad'); 
@@ -384,13 +378,12 @@ export const INTERACTIONS: Record<string, InteractionHandler> = {
             if (!isStudent) {
                 sim.money -= 10;
             } else {
-                // 学生免费，甚至可能因为营养餐加健康
                 if (Math.random() > 0.8) sim.health += 0.5;
             }
             return true;
         },
         onUpdate: (sim, obj, f, getRate) => {
-            sim.needs.hunger += getRate(40); // 食堂饭管饱
+            sim.needs[NeedType.Hunger] += getRate(40);
         }
     },
 };
