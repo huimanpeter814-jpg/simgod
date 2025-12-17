@@ -4,7 +4,6 @@ import { CONFIG } from '../../constants';
 import { Furniture, SimAction, NeedType, AgeStage } from '../../types';
 
 export const DecisionLogic = {
-    // 检查目标位置或家具是否是私人领地
     isRestricted(sim: Sim, target: { x: number, y: number } | Furniture): boolean {
         let homeId: string | undefined;
 
@@ -27,7 +26,6 @@ export const DecisionLogic = {
     },
 
     decideAction(sim: Sim) {
-        // 1. 检查紧急需求 (< 40)
         let critical = [
             { id: NeedType.Energy, val: sim.needs[NeedType.Energy] },
             { id: NeedType.Hunger, val: sim.needs[NeedType.Hunger] },
@@ -41,8 +39,6 @@ export const DecisionLogic = {
             return;
         }
 
-        // 2. 计算各需求评分
-        // [修复] 显式定义数组类型，允许 id 为 string，解决类型不兼容报错
         let scores: { id: string, score: number, type: string }[] = [
             { id: NeedType.Energy, score: (100 - sim.needs[NeedType.Energy]) * 3.0, type: 'obj' },
             { id: NeedType.Hunger, score: (100 - sim.needs[NeedType.Hunger]) * 2.5, type: 'obj' },
@@ -67,6 +63,7 @@ export const DecisionLogic = {
 
         scores.push({ id: NeedType.Social, score: socialScore, type: 'social' });
 
+        // 🆕 青少年也可兼职
         if (sim.job.id === 'unemployed' && ![AgeStage.Infant, AgeStage.Toddler, AgeStage.Child].includes(sim.ageStage)) {
             let moneyDesire = 0;
             if (sim.money < 500) moneyDesire = 200; 
@@ -117,7 +114,6 @@ export const DecisionLogic = {
             sim.startWandering();
         }
 
-        // 学生做作业决策
         if ([AgeStage.Child, AgeStage.Teen].includes(sim.ageStage) && sim.job.id === 'unemployed') {
             let studyDesire = 0;
             if (sim.mbti.includes('J')) studyDesire += 40;
@@ -168,8 +164,7 @@ export const DecisionLogic = {
             sim.interactionTarget = best.target;
             sim.isSideHustle = true; 
             
-            // [修复] 调用 Sim 方法代替直接实例化 State，切断循环依赖
-            sim.startCommuting();
+            sim.startMovingToInteraction();
         } else {
             sim.startWandering();
         }
@@ -177,7 +172,6 @@ export const DecisionLogic = {
 
     findObject(sim: Sim, type: string) {
         let utility = type;
-        // [优化] 使用 NeedType 常量
         const simpleMap: Record<string, string> = {
              [NeedType.Hunger]: 'hunger', 
              [NeedType.Bladder]: 'bladder', 
@@ -253,8 +247,7 @@ export const DecisionLogic = {
                 sim.target = { x: obj.x + obj.w / 2, y: obj.y + obj.h / 2 };
                 sim.interactionTarget = obj;
                 
-                // [修复] 调用 Sim 方法
-                sim.startCommuting();
+                sim.startMovingToInteraction();
                 return;
             } else {
                 sim.say("没钱/没位置...", 'bad');
@@ -294,8 +287,7 @@ export const DecisionLogic = {
             
             sim.interactionTarget = { type: 'human', ref: partner };
             
-            // [修复] 调用 Sim 方法
-            sim.startCommuting();
+            sim.startMovingToInteraction();
         } else {
             sim.startWandering();
         }
