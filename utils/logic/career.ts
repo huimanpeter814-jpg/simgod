@@ -4,6 +4,96 @@ import { JOBS, BUFFS, HOLIDAYS } from '../../constants';
 import { Furniture, JobType, SimAction, AgeStage, Job } from '../../types';
 import { CommutingState, IdleState } from './SimStates';
 
+
+// 🆕 定义职业适应性评分标准
+const JOB_PREFERENCES: Record<JobType, (sim: Sim) => number> = {
+    [JobType.Internet]: (sim) => {
+        let score = 0;
+        // 核心能力：智商与逻辑
+        score += sim.iq * 0.5;
+        score += sim.skills.logic * 2;
+        // 性格偏好：T(思考型), N(直觉型)
+        if (sim.mbti.includes('T')) score += 20;
+        if (sim.mbti.includes('N')) score += 10;
+        // 目标加成
+        if (sim.lifeGoal.includes('黑客') || sim.lifeGoal.includes('大牛') || sim.lifeGoal.includes('富翁')) score += 50;
+        return score;
+    },
+    [JobType.Design]: (sim) => {
+        let score = 0;
+        // 核心能力：创造力与审美
+        score += sim.creativity * 0.6;
+        score += (sim.skills.creativity || 0) * 2;
+        // 性格偏好：P(感知型), N(直觉型)
+        if (sim.mbti.includes('P')) score += 15;
+        if (sim.mbti.includes('N')) score += 15;
+        if (sim.lifeGoal.includes('艺术') || sim.lifeGoal.includes('设计')) score += 50;
+        return score;
+    },
+    [JobType.Business]: (sim) => {
+        let score = 0;
+        // 核心能力：情商与外表
+        score += sim.eq * 0.5;
+        score += sim.appearanceScore * 0.3;
+        // 性格偏好：E(外向), J(判断型)
+        if (sim.mbti.includes('E')) score += 25;
+        if (sim.mbti.includes('J')) score += 15;
+        if (sim.lifeGoal.includes('富翁') || sim.lifeGoal.includes('大亨') || sim.lifeGoal.includes('领袖')) score += 50;
+        return score;
+    },
+    [JobType.Store]: (sim) => {
+        let score = 0;
+        // 核心能力：情商、体质(站立工作)
+        score += sim.eq * 0.4;
+        score += sim.constitution * 0.2;
+        // 比较平均，适合没有突出特长的人作为保底
+        score += 20; 
+        return score;
+    },
+    [JobType.Restaurant]: (sim) => {
+        let score = 0;
+        // 核心能力：烹饪、体质
+        score += sim.skills.cooking * 3; // 技能权重很高，有一技之长
+        score += sim.constitution * 0.4;
+        if (sim.lifeGoal.includes('美食') || sim.lifeGoal.includes('主厨')) score += 50;
+        return score;
+    },
+    [JobType.Library]: (sim) => {
+        let score = 0;
+        // 核心能力：智商、逻辑
+        score += sim.iq * 0.3;
+        // 性格偏好：I(内向)
+        if (sim.mbti.includes('I')) score += 30;
+        if (sim.lifeGoal.includes('博学') || sim.lifeGoal.includes('岁月静好')) score += 40;
+        return score;
+    },
+    [JobType.School]: (sim) => {
+        let score = 0;
+        // 核心能力：智商、情商(管学生)
+        score += sim.iq * 0.3;
+        score += sim.eq * 0.3;
+        // 性格偏好：S(实感型), J(判断型) - 守规矩、负责任
+        if (sim.mbti.includes('S')) score += 10;
+        if (sim.mbti.includes('J')) score += 20;
+        // 喜欢家庭/教育的人
+        if (sim.lifeGoal.includes('家庭') || sim.lifeGoal.includes('桃李') || sim.lifeGoal.includes('岁月静好')) score += 50;
+        return score;
+    },
+    [JobType.Nightlife]: (sim) => {
+        let score = 0;
+        // 核心能力：音乐、舞蹈、魅力
+        score += (sim.skills.music || 0) * 1.5;
+        score += (sim.skills.dancing || 0) * 1.5;
+        score += sim.appearanceScore * 0.4;
+        // 性格偏好：E(外向), P(感知型)
+        if (sim.mbti.includes('E')) score += 20;
+        if (sim.mbti.includes('P')) score += 20;
+        if (sim.lifeGoal.includes('派对') || sim.lifeGoal.includes('万人迷')) score += 50;
+        return score;
+    },
+    [JobType.Unemployed]: () => -999 // 除非没得选，否则不主动选失业
+};
+
 export const CareerLogic = {
     // 🆕 动态计算岗位容量
     getDynamicJobCapacity(job: Job): number {
@@ -14,7 +104,7 @@ export const CareerLogic = {
         if (job.companyType === JobType.Internet) {
             searchLabels = isBoss ? ['老板椅'] : ['码农工位', '控制台', '服务器组'];
         } else if (job.companyType === JobType.Design) {
-            searchLabels = isBoss ? ['创意总监'] : ['画架']; // 假设总监有特定座位，或者共用高级工位
+            searchLabels = isBoss ? ['创意总监'] : ['画架']; 
         } else if (job.companyType === JobType.Business) {
             searchLabels = isBoss ? ['老板椅', '红木班台'] : ['商务工位'];
         } else if (job.companyType === JobType.Store) {
@@ -24,7 +114,6 @@ export const CareerLogic = {
         } else if (job.companyType === JobType.Nightlife) {
             searchLabels = ['DJ台', '吧台'];
         } else if (job.companyType === JobType.School) {
-            // [修改] 增加新职位的搜索匹配
             if (job.level >= 4) {
                 searchLabels = ['校长室', '办公桌']; // 校长
             } else if (job.title.includes('厨') || job.title.includes('帮厨')) {
@@ -35,7 +124,6 @@ export const CareerLogic = {
                 searchLabels = ['讲台', '黑板', '办公桌', '教师桌']; // 通用教师
             }
         } else {
-            // 默认容量
             return 20; 
         }
 
@@ -52,36 +140,69 @@ export const CareerLogic = {
         return Math.max(1, capacity); 
     },
 
-    // 初始工作指派 (修复：绑定 workplaceId)
+    // 🌟 重构后的工作指派逻辑：基于全属性评分
     assignJob(sim: Sim) {
-        let preferredType = '';
+        // 1. 计算所有职业类型的得分
+        const scores: { type: JobType, score: number }[] = [];
         
-        // 职业偏好逻辑
-        if (sim.lifeGoal.includes('富翁') || sim.mbti.includes('T')) preferredType = JobType.Internet;
-        else if (sim.lifeGoal.includes('博学') || sim.mbti.includes('N')) preferredType = JobType.Design;
-        else if (sim.mbti.includes('E')) preferredType = JobType.Business;
-        // [新增] 教育业偏好：F型人格 (Feeling) 或 生活目标偏向安稳/教育
-        else if (sim.mbti.includes('F') || sim.lifeGoal.includes('岁月静好') || sim.lifeGoal.includes('桃李满天下')) preferredType = JobType.School;
-        else {
-            // [新增] 将 School 加入随机池
-            const randomPool = [JobType.Store, JobType.Restaurant, JobType.School, JobType.Nightlife];
-            preferredType = randomPool[Math.floor(Math.random() * randomPool.length)];
-        }
-
-        const validJobs = JOBS.filter(j => {
-            if (j.id === 'unemployed') return true;
-            if (j.level !== 1) return false; 
-            if (preferredType && j.companyType !== preferredType) return false;
+        (Object.keys(JOB_PREFERENCES) as JobType[]).forEach(type => {
+            if (type === JobType.Unemployed) return;
+            const calculateScore = JOB_PREFERENCES[type];
+            let score = calculateScore(sim);
             
-            const capacity = this.getDynamicJobCapacity(j);
-            const currentCount = GameStore.sims.filter(s => s.job.id === j.id).length;
-            return currentCount < capacity;
+            // 加上一点随机波动，避免数值完全决定命运，增加多样性
+            score += Math.random() * 15; 
+            
+            scores.push({ type, score });
         });
 
-        let finalJobChoice = validJobs.length > 0 ? validJobs[Math.floor(Math.random() * validJobs.length)] : undefined;
-        if (!finalJobChoice) finalJobChoice = JOBS.find(j => j.id === 'unemployed')!;
-        
-        sim.job = finalJobChoice!;
+        // 2. 按分数降序排列，优先尝试高分职业
+        scores.sort((a, b) => b.score - a.score);
+
+        // 3. 尝试分配工作（从高分到低分遍历）
+        let assignedJob: Job | undefined = undefined;
+
+        for (const candidate of scores) {
+            const jobType = candidate.type;
+            
+            // 查找该类型下 Level 1 或 Level 2 的职位
+            // (放宽限制：允许 Lv2 入职，防止因为没有 Lv1 职位导致无法就职)
+            const validJobs = JOBS.filter(j => {
+                if (j.companyType !== jobType) return false;
+                if (j.level > 2) return false; // 只允许初级或中级入职
+                
+                // 检查容量
+                const capacity = this.getDynamicJobCapacity(j);
+                const currentCount = GameStore.sims.filter(s => s.job.id === j.id).length;
+                return currentCount < capacity;
+            });
+
+            if (validJobs.length > 0) {
+                // 在符合条件的职位中随机选一个
+                assignedJob = validJobs[Math.floor(Math.random() * validJobs.length)];
+                
+                // 增加日志记录，方便调试
+                // console.log(`[JobAssign] ${sim.name} -> ${jobType} (Score: ${candidate.score.toFixed(1)})`);
+                break; // 找到工作了，跳出循环
+            }
+        }
+
+        // 4. 如果所有偏好职业都满了，只好失业或随机塞一个 (兜底)
+        if (!assignedJob) {
+            assignedJob = JOBS.find(j => j.id === 'unemployed');
+            sim.say("找不到合适的工作...", 'bad');
+        } else {
+            // 如果是很匹配的工作（分数高），给个好心情
+            // 简单判断：如果选中的是第一志愿
+            if (scores[0].type === assignedJob.companyType) {
+                sim.addBuff(BUFFS.promoted); // 借用 promoted 表示找到心仪工作
+                sim.say("这是我的梦想职业！", 'act');
+            } else {
+                sim.say("先干着这份工吧...", 'normal');
+            }
+        }
+
+        sim.job = assignedJob!;
         
         // 🆕 绑定工作地点 (Workplace Binding)
         if (sim.job.id !== 'unemployed') {
@@ -111,7 +232,7 @@ export const CareerLogic = {
                 const plot = validPlots[Math.floor(Math.random() * validPlots.length)];
                 sim.workplaceId = plot.id;
             } else {
-                sim.workplaceId = undefined; // 没找到对应地皮，只能流浪办公
+                sim.workplaceId = undefined; // 没找到对应地皮
             }
         } else {
             sim.workplaceId = undefined;
