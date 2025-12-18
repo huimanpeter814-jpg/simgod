@@ -22,11 +22,10 @@ export enum SimAction {
     Following = 'following',
     MovingHome = 'moving_home',
     EatingOut = 'eat_out',
-    // 🆕 新增接送相关状态
     PickingUp = 'picking_up',   // 父母去接孩子
     Escorting = 'escorting',    // 父母护送/抱着孩子
     BeingEscorted = 'being_escorted', // 孩子被护送/抱着
-    Waiting = 'waiting' // 🆕 原地等待状态
+    Waiting = 'waiting' // 原地等待状态
 }
 
 export enum JobType {
@@ -38,7 +37,9 @@ export enum JobType {
     Restaurant = 'restaurant',
     Library = 'library',
     School = 'school',
-    Nightlife = 'nightlife'
+    Nightlife = 'nightlife',
+    Hospital = 'hospital', 
+    ElderCare = 'elder_care'
 }
 
 export enum NeedType {
@@ -70,6 +71,7 @@ export interface Furniture {
   color: string;
   label: string;
   utility: string;
+  tags?: string[]; // 🆕 功能标签系统 (e.g., ['computer', 'gaming'])
   dir?: string;
   multiUser?: boolean;
   gender?: string;
@@ -100,7 +102,7 @@ export interface HousingUnit {
     name: string;     
     capacity: number; 
     cost: number;     
-    type: 'public_housing' | 'apartment' | 'villa'; 
+    type: 'public_housing' | 'apartment' | 'villa' | 'elder_care'; 
     area: { x: number, y: number, w: number, h: number }; 
     maxX?: number;
     maxY?: number;
@@ -130,16 +132,21 @@ export interface WorldPlot {
 
 export interface EditorState {
   mode: 'none' | 'plot' | 'furniture' | 'floor'; 
+  activeTool: 'camera' | 'select';
   selectedPlotId: string | null;
   selectedFurnitureId: string | null;
   selectedRoomId: string | null;
   
-  isDragging: boolean;
+  isDragging: boolean; // 用于指示是否正在预览移动（渲染Ghost）
   dragOffset: { x: number, y: number };
   
   placingTemplateId: string | null;
   placingFurniture: Partial<Furniture> | null;
-  
+
+  // [新增] 记录当前正在进行的操作状态，用于UI交互（如 Click-Move-Click）
+  interactionState: 'idle' | 'carrying' | 'resizing' | 'drawing';
+  resizeHandle: 'nw' | 'ne' | 'sw' | 'se' | null;
+
   drawingPlot: {
       startX: number;
       startY: number;
@@ -163,7 +170,7 @@ export interface EditorState {
 }
 
 export interface EditorAction {
-    type: 'add' | 'remove' | 'move' | 'modify';
+    type: 'add' | 'remove' | 'move' | 'modify' | 'resize';
     entityType: 'plot' | 'furniture' | 'room';
     id: string;
     prevData?: any; 
@@ -214,6 +221,7 @@ export interface Relationship {
   isLover: boolean;
   isSpouse: boolean; 
   hasRomance: boolean;
+  isColleague?: boolean;
   kinship?: 'parent' | 'child' | 'sibling' | 'spouse' | 'none';
 }
 
@@ -226,6 +234,7 @@ export interface Job {
   endHour: number;
   vacationMonths?: number[]; 
   companyType?: JobType | string; // Use Enum
+  requiredTags?: string[]; // 🆕 职业所需的家具标签 (e.g., ['computer'], ['stove'])
 }
 
 export interface Buff {
@@ -255,7 +264,7 @@ export interface SimData {
   id: string;
   familyId: string; 
   homeId: string | null;
-  workplaceId?: string; // 🆕 工作地点 ID (Plot ID)
+  workplaceId?: string; // 工作地点 ID (Plot ID)
   
   name: string;
   surname: string; 
@@ -305,7 +314,9 @@ export interface SimData {
   money: number;
   dailyBudget: number;
   workPerformance: number;
-  consecutiveAbsences?: number; // 🆕 连续旷工天数
+  consecutiveAbsences?: number; 
+  commutePreTime?: number; // 每日上班提前多少分钟出发 (0-60)
+  lastPunchInTime?: number; // 今日打卡时间，用于计算迟到
   
   job: Job;
   dailyExpense: number;

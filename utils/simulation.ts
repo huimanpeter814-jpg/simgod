@@ -1,6 +1,6 @@
 import { PALETTES, HOLIDAYS, JOBS, CONFIG, SURNAMES } from '../constants'; 
 import { PLOTS } from '../data/plots'; 
-import { WORLD_LAYOUT, STREET_PROPS } from '../data/world'; 
+import { WORLD_LAYOUT,STREET_PROPS  } from '../data/world'; 
 import { LogEntry, GameTime, Job, Furniture, RoomDef, HousingUnit, WorldPlot, SaveMetadata, EditorAction, EditorState, AgeStage } from '../types';
 import { Sim } from './Sim';
 import { SpatialHashGrid } from './spatialHash';
@@ -42,6 +42,7 @@ export class GameStore {
     // Toast Notification State
     static toastMessage: string | null = null;
     static toastTimer: any = null;
+    
 
     static subscribe(cb: () => void) {
         this.listeners.push(cb);
@@ -68,44 +69,93 @@ export class GameStore {
         this.notify();
     }
 
+    // 🆕 核心逻辑更新：房屋分配
     static assignRandomHome(sim: Sim) {
-        const availableHomes = this.housingUnits.filter(unit => {
+        let targetTypes: string[] = [];
+
+        // 1. 老年人优先分配养老院
+        if (sim.ageStage === AgeStage.Elder) {
+            targetTypes = ['elder_care', 'apartment', 'public_housing'];
+        } 
+        // 2. 富人分配别墅或高级公寓
+        else if (sim.money > 5000) {
+            targetTypes = ['villa', 'apartment'];
+        } 
+        // 3. 穷人分配公屋/宿舍
+        else if (sim.money < 2000) {
+            targetTypes = ['public_housing'];
+        } 
+        // 4. 中产阶级
+        else {
+            targetTypes = ['apartment', 'public_housing'];
+        }
+
+        // 筛选符合类型的空闲房源
+        let candidates = this.housingUnits.filter(unit => {
             const residents = this.sims.filter(s => s.homeId === unit.id).length;
-            return residents < unit.capacity;
+            return targetTypes.includes(unit.type) && residents < unit.capacity;
         });
 
-        if (availableHomes.length === 0) {
+        // 优先匹配首选类型 (数组第一个)
+        const preferred = candidates.filter(u => u.type === targetTypes[0]);
+        if (preferred.length > 0) {
+            candidates = preferred;
+        }
+
+        // 兜底：如果目标类型都满了，寻找任何有空位的房子 (排除养老院，除非是老人)
+        if (candidates.length === 0) {
+            candidates = this.housingUnits.filter(unit => {
+                const residents = this.sims.filter(s => s.homeId === unit.id).length;
+                if (unit.type === 'elder_care' && sim.ageStage !== AgeStage.Elder) return false;
+                return residents < unit.capacity;
+            });
+        }
+
+        if (candidates.length === 0) {
             this.showToast("❌ 没有空闲的住处了！");
+            // 可以考虑添加 "homeless" 状态处理
             return;
         }
 
-        let candidates = availableHomes;
-        if (sim.money > 5000) {
-            const luxury = availableHomes.filter(h => h.type === 'villa' || h.type === 'apartment');
-            if (luxury.length > 0) candidates = luxury;
-        } else if (sim.money < 2000) {
-            const budget = availableHomes.filter(h => h.type === 'public_housing');
-            if (budget.length > 0) candidates = budget;
-        }
-
+        // 随机选择一个
         const newHome = candidates[Math.floor(Math.random() * candidates.length)];
         sim.homeId = newHome.id;
-        this.addLog(sim, `搬进了新家：${newHome.name}`, 'life');
+
+        // 根据房屋类型生成不同的日志
+        if (newHome.type === 'elder_care') {
+            this.addLog(sim, `办理了入住手续，搬进了养老社区：${newHome.name}`, 'life');
+        } else if (newHome.type === 'villa') {
+            this.addLog(sim, `搬进了豪宅：${newHome.name}`, 'life');
+        } else {
+            this.addLog(sim, `搬进了新家：${newHome.name}`, 'life');
+        }
+        
         this.showToast(`✅ 已分配住址：${newHome.name}`);
 
-        // 配偶和孩子跟随搬家
-        const partner = this.sims.find(s => s.id === sim.partnerId && sim.relationships[s.id]?.isSpouse);
-        if (partner && partner.homeId !== newHome.id) {
-            partner.homeId = newHome.id;
-            this.addLog(partner, `随配偶搬进了新家`, 'family');
-        }
-
-        const children = this.sims.filter(s => sim.childrenIds.includes(s.id) && ([AgeStage.Infant, AgeStage.Toddler, AgeStage.Child, AgeStage.Teen] as AgeStage[]).includes(s.ageStage));
-        children.forEach(child => {
-            if (child.homeId !== newHome.id) {
-                child.homeId = newHome.id;
+        // === 家人跟随搬家逻辑 ===
+        // 只有非养老院类型的搬家才会触发家人跟随
+        if (newHome.type !== 'elder_care') {
+            // 1. 配偶跟随 (除非配偶已经是老人且住在养老院)
+            const partner = this.sims.find(s => s.id === sim.partnerId && sim.relationships[s.id]?.isSpouse);
+            if (partner && partner.homeId !== newHome.id) {
+                const partnerHome = this.housingUnits.find(u => u.id === partner.homeId);
+                if (!partnerHome || partnerHome.type !== 'elder_care') {
+                    partner.homeId = newHome.id;
+                    this.addLog(partner, `随配偶搬进了新家`, 'family');
+                }
             }
-        });
+
+            // 2. 未成年子女跟随
+            const children = this.sims.filter(s => 
+                sim.childrenIds.includes(s.id) && 
+                ([AgeStage.Infant, AgeStage.Toddler, AgeStage.Child, AgeStage.Teen] as AgeStage[]).includes(s.ageStage)
+            );
+            children.forEach(child => {
+                if (child.homeId !== newHome.id) {
+                    child.homeId = newHome.id;
+                }
+            });
+        }
 
         this.refreshFurnitureOwnership();
         this.notify();
@@ -165,7 +215,7 @@ export class GameStore {
             };
 
             const type = plot.customType;
-            if (type && ['dorm', 'villa', 'apartment'].includes(type)) {
+            if (type && ['dorm', 'villa', 'apartment', 'residential'].includes(type)) {
                 let unitType: 'public_housing' | 'apartment' | 'villa' = 'public_housing';
                 let capacity = 6;
                 let cost = 500;
@@ -174,7 +224,7 @@ export class GameStore {
                     unitType = 'villa'; capacity = 4; cost = 5000;
                 } else if (type === 'apartment') {
                     unitType = 'apartment'; capacity = 2; cost = 1500;
-                } else if (type === 'dorm') {
+                } else if (type === 'dorm' || type === 'residential') {
                     unitType = 'public_housing'; capacity = 8; cost = 200;
                 }
 
@@ -217,7 +267,15 @@ export class GameStore {
             const absX = f.x + plot.x;
             const absY = f.y + plot.y;
             const ownerUnit = plotUnits.find(u => absX >= u.x && absX < u.maxX && absY >= u.y && absY < u.maxY);
-            this.furniture.push({ ...f, id: `${plot.id}_${f.id}`, x: absX, y: absY, homeId: ownerUnit ? ownerUnit.id : undefined });
+            this.furniture.push({ 
+                ...f, 
+                id: `${plot.id}_${f.id}`, 
+                x: absX, 
+                y: absY, 
+                homeId: ownerUnit ? ownerUnit.id : undefined,
+                // 🆕 建议在 types.ts 的 Furniture 接口里加个可选的 plotId
+                // plotId: plot.id 
+            });
         });
     }
 
@@ -231,6 +289,7 @@ export class GameStore {
         if (attrs.type !== undefined && plot.customType !== attrs.type) { plot.customType = attrs.type; hasChange = true; }
 
         if (hasChange) {
+            // 简单的局部刷新：移除旧的，重新实例化
             this.rooms = this.rooms.filter(r => !r.id.startsWith(`${plotId}_`));
             this.furniture = this.furniture.filter(f => !f.id.startsWith(`${plotId}_`));
             this.housingUnits = this.housingUnits.filter(h => !h.id.startsWith(`${plotId}_`));
@@ -259,7 +318,6 @@ export class GameStore {
     // === 🗺️ 地图数据管理 (Delegated to SaveManager) ===
 
     static getMapData() {
-        // 构建 MapData 对象，由 SaveManager 决定如何处理（这里直接返回对象供 UI 下载）
         return {
             version: "1.0",
             timestamp: Date.now(),
@@ -270,7 +328,6 @@ export class GameStore {
     }
 
     static importMapData(rawJson: any) {
-        // [新增] 使用 SaveManager 进行解析和校验
         const validData = SaveManager.parseMapData(rawJson);
         
         if (!validData) {
@@ -296,7 +353,7 @@ export class GameStore {
     }
 
     // === Proxy Methods to EditorManager ===
-    static get history() { return this.editor.history; } // For compatibility if accessed directly
+    static get history() { return this.editor.history; } 
     static get redoStack() { return this.editor.redoStack; }
 
     static enterEditorMode() { this.editor.enterEditorMode(); }
@@ -320,18 +377,41 @@ export class GameStore {
     static removeFurniture(id: string) { this.editor.removeFurniture(id); }
     static changePlotTemplate(plotId: string, templateId: string) { this.editor.changePlotTemplate(plotId, templateId); }
     static finalizeMove(type: 'plot'|'furniture'|'room', id: string, startPos: any) { this.editor.finalizeMove(type, id, startPos); }
+    // 🆕 新增：地皮家具索引 (Plot ID -> Furniture List)
+    static furnitureByPlot: Map<string, Furniture[]> = new Map();
 
     static initIndex() {
         this.furnitureIndex.clear();
         this.worldGrid.clear();
-        this.pathFinder.clear(); 
+        this.pathFinder.clear();
+        this.furnitureByPlot.clear(); // 清空旧索引
 
         const passableTypes = ['rug_fancy', 'rug_persian', 'rug_art', 'pave_fancy', 'stripes', 'zebra', 'manhole', 'grass', 'concrete', 'tile', 'wood', 'run_track', 'water'];
 
         this.furniture.forEach(f => {
+            // 1. 原有逻辑：按功能索引
             if (!this.furnitureIndex.has(f.utility)) { this.furnitureIndex.set(f.utility, []); }
             this.furnitureIndex.get(f.utility)!.push(f);
+            
+            // 2. 原有逻辑：空间哈希
             this.worldGrid.insert({ id: f.id, x: f.x, y: f.y, w: f.w, h: f.h, type: 'furniture', ref: f });
+
+            // 🆕 3. 新增逻辑：提取 plotId 并存入索引
+            // 假设家具ID格式为 "plotId_furnitureId" (你在 instantiatePlot 里是这么生成的)
+            // 我们通过字符串分割获取 plotId
+            const parts = f.id.split('_');
+            // 注意：因为 plotId 可能包含下划线（如 p_nw_1），我们需要一种更稳健的方式，
+            // 或者在 instantiatePlot 时给 Furniture 对象直接加上 plotId 属性（推荐）。
+            // 这里为了兼容现有数据，我们假设 ID 的前缀匹配：
+            // 更好的做法是：在 instantiatePlot 里给 furniture 加个 plotId 字段。
+            // 暂时用这种简易方式：找到包含这个家具的地皮
+            const ownerPlot = this.worldLayout.find(p => f.id.startsWith(p.id));
+            if (ownerPlot) {
+                if (!this.furnitureByPlot.has(ownerPlot.id)) {
+                    this.furnitureByPlot.set(ownerPlot.id, []);
+                }
+                this.furnitureByPlot.get(ownerPlot.id)!.push(f);
+            }
 
             const padding = 4;
             const isPassable = f.pixelPattern && passableTypes.some(t => f.pixelPattern?.includes(t));
@@ -380,10 +460,8 @@ export class GameStore {
     }
 
     static saveGame(slotIndex: number = 1) {
-        // 1. 准备 Sims 数据 (处理引用和循环依赖)
         const safeSims = this.sims.map(sim => {
             const s = Object.assign({}, sim);
-            // 清理临时状态，避免序列化问题
             if (s.interactionTarget && (s.interactionTarget as any).ref) {
                 s.interactionTarget = null; s.action = 'idle'; s.target = null;
                 // @ts-ignore
@@ -392,7 +470,6 @@ export class GameStore {
             return s;
         });
 
-        // 2. 构建存档数据包
         const saveData: GameSaveData = {
             version: 3.2, 
             timestamp: Date.now(),
@@ -404,7 +481,6 @@ export class GameStore {
             customFurniture: this.furniture.filter(f => f.id.startsWith('custom_') || f.id.startsWith('vending_') || f.id.startsWith('trash_') || f.id.startsWith('hydrant_')) 
         };
 
-        // 3. 调用 SaveManager 执行保存
         const success = SaveManager.saveToSlot(slotIndex, saveData);
         
         if (success) {
@@ -414,48 +490,44 @@ export class GameStore {
         }
     }
 
-    static loadGame(slotIndex: number = 1): boolean {
-        // 1. 调用 SaveManager 读取数据
+    static loadGame(slotIndex: number = 1, silent: boolean = false): boolean {
         const data = SaveManager.loadFromSlot(slotIndex);
         
         if (!data) {
-            this.showToast(`❌ 读取存档失败`);
+            if (!silent) {
+                this.showToast(`❌ 读取存档失败`);
+            }
             return false;
         }
 
         try {
-            // 2. 恢复世界布局
             if (data.worldLayout) this.worldLayout = data.worldLayout;
             else this.worldLayout = JSON.parse(JSON.stringify(WORLD_LAYOUT)); 
 
-            this.rebuildWorld(true); // 此时 furniture 被重置为初始状态
+            this.rebuildWorld(true); 
 
-            // 3. 恢复自定义建筑和家具
             if (data.rooms) this.rooms = [...this.rooms, ...data.rooms];
             if (data.customFurniture) {
-                // 将加载的自定义家具追加到当前家具列表中
                 const staticFurniture = this.furniture; 
                 this.furniture = [...staticFurniture, ...data.customFurniture];
             }
 
-            // 4. 恢复游戏时间与日志
             this.time = { ...data.time, speed: 1 };
             this.logs = data.logs || [];
 
-            // 5. 恢复市民 (反序列化)
             this.loadSims(data.sims);
 
-            // 6. 重建索引和关系
             this.initIndex();
             this.refreshFurnitureOwnership();
             
-            this.showToast(`📂 读取存档 ${slotIndex} 成功！`);
+            if (!silent) {
+                this.showToast(`📂 读取存档 ${slotIndex} 成功！`);
+            }
             this.notify();
             return true;
         } catch (e) {
             console.error("[GameStore] Hydration failed:", e);
-            // 发生严重错误时尝试回滚或重置（此处简单提示）
-            this.showToast(`❌ 存档数据损坏，无法恢复`);
+            if (!silent) this.showToast(`❌ 存档数据损坏，无法恢复`);
             return false;
         }
     }
@@ -468,27 +540,20 @@ export class GameStore {
 
     static loadSims(simsData: any[]) {
         this.sims = simsData.map((sData: any) => {
-            // 需要重新实例化 Sim 类，而不是仅仅使用纯对象
             const sim = new Sim({ x: sData.pos.x, y: sData.pos.y }); 
             
-            // 覆盖属性
             Object.assign(sim, sData);
             
-            // 数据补全/兼容性处理
             if (!sim.childrenIds) sim.childrenIds = [];
             if (!sim.health) sim.health = 100;
-            // [Fix] 使用枚举 AgeStage.Adult 而不是字符串
             if (!sim.ageStage) sim.ageStage = AgeStage.Adult;
             if (sim.interactionTarget) sim.interactionTarget = null;
             
-            // 恢复职业对象 (确保引用的是常量中的 Job 对象)
             const currentJobDefinition = JOBS.find(j => j.id === sim.job.id);
             if (currentJobDefinition) {
                 sim.job = { ...currentJobDefinition };
             }
 
-            // [修复] 核心修复：根据 action 属性恢复正确的 State 实例
-            // 否则 state 只是一个普通对象，没有 update 方法，导致报错
             sim.restoreState();
 
             return sim;
@@ -496,7 +561,6 @@ export class GameStore {
     }
 
     static spawnFamily(size?: number) {
-        // 如果传入了 size，使用 size，否则默认 2-4 人
         const count = size || (2 + Math.floor(Math.random() * 3)); 
         const fam = FamilyGenerator.generate(count, this.housingUnits, this.sims);
         this.sims.push(...fam);
@@ -524,18 +588,13 @@ export function initGame() {
 
     GameStore.rebuildWorld(true); 
 
-    // 尝试自动读取存档 1
-    if (GameStore.loadGame(1)) {
+    if (GameStore.loadGame(1,true)) {
         GameStore.addLog(null, "自动读取存档 1 成功", "sys");
     } else {
-        // [Updated] 默认生成逻辑：2个单身 + 2个家庭
         GameStore.addLog(null, "正在初始化新城市人口...", "sys");
         
-        // 1. 生成 2 个单身市民
         GameStore.spawnSingle();
         GameStore.spawnSingle();
-
-        // 2. 生成 2 个家庭 (随机2-4人)
         GameStore.spawnFamily();
         GameStore.spawnFamily();
 
@@ -563,7 +622,6 @@ export function updateTime() {
             if (GameStore.time.hour >= 24) {
                 GameStore.time.hour = 0;
                 
-                // [Refactor] 使用独立的 NarrativeSystem
                 NarrativeSystem.handleDailyDiaries(GameStore.sims, GameStore.time, (msg) => GameStore.addLog(null, msg, 'sys', true));
 
                 GameStore.time.totalDays++;
@@ -587,7 +645,6 @@ export function updateTime() {
                     s.dailyExpense = 0; s.dailyIncome = 0; s.payRent(); s.calculateDailyBudget(); s.applyMonthlyEffects(currentMonth, holiday);
                 });
                 
-                // 自动保存逻辑也通过 GameStore 调用 SaveManager
                 GameStore.saveGame(1);
             }
         }
