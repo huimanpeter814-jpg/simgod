@@ -6,13 +6,89 @@ import { getInteractionPos } from '../simulationHelpers';
 import { FeedBabyState, WaitingState, IdleState } from './SimStates';
 
 export const DecisionLogic = {
+    /**
+     * 核心权限检查：判断市民是否被禁止进入某目标区域/使用某物品
+     * @param sim 市民对象
+     * @param target 目标位置或家具对象
+     * @returns true = 禁止进入 (Restricted), false = 允许 (Allowed)
+     */
     isRestricted(sim: Sim, target: { x: number, y: number } | Furniture): boolean {
+        // --- 1. 寻找目标所在的具体地块 (Plot) ---
+        const plot = GameStore.worldLayout.find(p => 
+            target.x >= p.x && target.x <= p.x + (p.width || 300) &&
+            target.y >= p.y && target.y <= p.y + (p.height || 300)
+        );
+
+        // --- 2. 基于地皮类型的规则 ---
+        if (plot) {
+            // [规则 A] 学校区域警戒 (Security)
+            const isSchool = ['kindergarten', 'elementary', 'high_school', 'school_elem', 'school_high'].includes(plot.templateId);
+            
+            // 幼儿园安保更严格，全天限制；中小学限制教学时间
+            const isKindergarten = plot.templateId === 'kindergarten';
+            const currentHour = GameStore.time.hour;
+            const isSchoolTime = currentHour >= 8 && currentHour < 16;
+            
+            if (isSchool && (isSchoolTime || isKindergarten)) {
+                // 1. 允许教职工 (在此工作的人)
+                if (sim.workplaceId === plot.id) return false;
+
+                // 2. 允许家长任务 (接送/喂奶/等待)
+                // [新增] 允许 FeedBaby 状态的家长进入幼儿园
+                const validParentActions = [
+                    SimAction.PickingUp, 
+                    SimAction.Escorting, 
+                    SimAction.Waiting, 
+                    SimAction.FeedBaby
+                ];
+                if (validParentActions.includes(sim.action as SimAction)) return false;
+
+                // 3. 允许对应学龄的学生
+                let isStudent = false;
+                if (isKindergarten && [AgeStage.Infant, AgeStage.Toddler].includes(sim.ageStage)) isStudent = true;
+                if (plot.templateId.includes('elem') && sim.ageStage === AgeStage.Child) isStudent = true;
+                if (plot.templateId.includes('high') && sim.ageStage === AgeStage.Teen) isStudent = true;
+                
+                if (isStudent) return false;
+
+                // 🚫 其他人禁止入内 (闲杂人等退散)
+                return true;
+            }
+
+            // [规则 B] 成人娱乐场所 (Adult Only)
+            // 夜店、酒吧
+            const isNightlife = ['nightclub', 'bar'].includes(plot.templateId) || plot.customType === 'nightlife';
+            if (isNightlife) {
+                // 未成年人禁止入内 (Teen 也不行，防止早恋/学坏)
+                if ([AgeStage.Infant, AgeStage.Toddler, AgeStage.Child, AgeStage.Teen].includes(sim.ageStage)) {
+                    return true;
+                }
+            }
+
+            // [规则 C] 办公区域 (Workplace Security)
+            // 限制非员工进入纯办公场所 (Tech, Finance, Creative)
+            const privateWorkplaces = ['tech_hq', 'finance_center', 'creative_park'];
+            const isPrivateOffice = privateWorkplaces.includes(plot.templateId) || (plot.customType === 'work');
+
+            if (isPrivateOffice) {
+                // 1. 允许该地块的员工
+                if (sim.workplaceId === plot.id) return false;
+                
+                // 🚫 禁止非员工使用办公设施
+                return true;
+            }
+        }
+
+        // --- 3. 私宅归属权检查 (Private Property) ---
         let homeId: string | undefined;
 
         if ('homeId' in target && (target as Furniture).homeId) {
             homeId = (target as Furniture).homeId;
-        } else {
+        } else if (plot) {
+            // [修复] 只要确定了 plot，就尝试在 GameStore.housingUnits 中查找归属
+            // 不再检查 plot.housingUnits，因为该属性不存在于 WorldPlot 类型上
             const unit = GameStore.housingUnits.find(u => 
+                u.id.startsWith(plot.id) && // 属于该地皮
                 target.x >= u.x && target.x <= u.x + u.area.w &&
                 target.y >= u.y && target.y <= u.y + u.area.h
             );
@@ -20,10 +96,20 @@ export const DecisionLogic = {
         }
 
         if (homeId) {
+            // 是自己家 -> 允许
             if (sim.homeId === homeId) return false;
+            
+            // 是拜访对象家 -> 允许 (暂未实现正式拜访系统，这里简单判断：如果是亲友家且关系好)
+            // 或者是保姆
+            if (sim.isTemporary && sim.job.id === 'nanny' && sim.homeId === homeId) return false;
+
+            // 检查该房子是否有人住 (有主之地)
             const isOccupied = GameStore.sims.some(s => s.homeId === homeId);
+            
+            // 如果是陌生人的有主私宅 -> 禁止闯入
             if (isOccupied) return true;
         }
+
         return false;
     },
 
@@ -463,7 +549,7 @@ export const DecisionLogic = {
         // 过滤不可用对象
         if (candidates.length) {
             candidates = candidates.filter((f: Furniture)=> {
-                 // 1. 权限检查 (私宅)
+                 // 1. 权限检查 (私宅/学校/夜店)
                  if (DecisionLogic.isRestricted(sim, f)) return false;
                  
                  // 2. 经济检查
