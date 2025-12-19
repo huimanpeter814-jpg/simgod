@@ -163,6 +163,12 @@ const GameCanvas: React.FC = () => {
                 else if (GameStore.editor.selectedFurnitureId) GameStore.removeFurniture(GameStore.editor.selectedFurnitureId);
                 else if (GameStore.editor.selectedRoomId) GameStore.removeRoom(GameStore.editor.selectedRoomId);
             }
+            // 🆕 旋转快捷键
+            if (e.key === 'r' || e.key === 'R') {
+                if (GameStore.editor.mode !== 'none') {
+                    GameStore.editor.rotateSelection();
+                }
+            }
         };
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
@@ -264,10 +270,14 @@ const GameCanvas: React.FC = () => {
             // 选中框绘制 (地皮/房间/家具)
             if (GameStore.editor.mode === 'plot' && GameStore.editor.selectedPlotId) {
                 const plot = GameStore.worldLayout.find(p => p.id === GameStore.editor.selectedPlotId);
+                // [修复] 如果 plot.width 未定义，尝试从 template 获取，否则 fallback 300
+                const w = plot?.width || (plot ? PLOTS[plot.templateId]?.width : 300) || 300;
+                const h = plot?.height || (plot ? PLOTS[plot.templateId]?.height : 300) || 300;
+                
                 if (plot) {
-                    ctx.strokeStyle = '#00ffff'; ctx.lineWidth = 2; ctx.strokeRect(plot.x, plot.y, plot.width || 300, plot.height || 300);
+                    ctx.strokeStyle = '#00ffff'; ctx.lineWidth = 2; ctx.strokeRect(plot.x, plot.y, w, h);
                     // @ts-ignore
-                    if (GameStore.editor.activeTool !== 'camera') drawResizeHandles(ctx, plot.x, plot.y, plot.width || 300, plot.height || 300);
+                    if (GameStore.editor.activeTool !== 'camera') drawResizeHandles(ctx, plot.x, plot.y, w, h);
                 }
             }
             if (GameStore.editor.mode === 'floor' && GameStore.editor.selectedRoomId) {
@@ -292,8 +302,18 @@ const GameCanvas: React.FC = () => {
                     if (f) { const previewF = { ...f, x, y }; drawPixelProp(ctx, previewF, p); ctx.strokeStyle = '#ffff00'; ctx.strokeRect(x, y, f.w||0, f.h||0); }
                 } else if (GameStore.editor.mode === 'plot') {
                     let w = 300, h = 300;
-                    if (GameStore.editor.selectedPlotId) { const plot = GameStore.worldLayout.find(p => p.id === GameStore.editor.selectedPlotId); if(plot){ w=plot.width||300; h=plot.height||300; } }
-                    else if (GameStore.editor.placingTemplateId) { const tpl = PLOTS[GameStore.editor.placingTemplateId]; if(tpl){ w=tpl.width; h=tpl.height; } }
+                    if (GameStore.editor.selectedPlotId) { 
+                        const plot = GameStore.worldLayout.find(p => p.id === GameStore.editor.selectedPlotId); 
+                        // [修复] 拖拽现有地皮时的 Ghost 尺寸修正
+                        if(plot) {
+                            w = plot.width || PLOTS[plot.templateId]?.width || 300;
+                            h = plot.height || PLOTS[plot.templateId]?.height || 300;
+                        } 
+                    }
+                    else if (GameStore.editor.placingTemplateId) { 
+                        const tpl = PLOTS[GameStore.editor.placingTemplateId]; 
+                        if(tpl){ w=tpl.width; h=tpl.height; } 
+                    }
                     ctx.fillStyle = 'rgba(255,255,255,0.2)'; ctx.fillRect(x, y, w, h); ctx.strokeStyle = '#ffff00'; ctx.strokeRect(x, y, w, h);
                 } else if (GameStore.editor.mode === 'floor' && GameStore.editor.selectedRoomId) {
                     const room = GameStore.rooms.find(r => r.id === GameStore.editor.selectedRoomId);
@@ -486,7 +506,12 @@ const GameCanvas: React.FC = () => {
             let resizeTarget: { x: number, y: number, w: number, h: number } | null = null;
             if (GameStore.editor.mode === 'plot' && GameStore.editor.selectedPlotId) {
                 const plot = GameStore.worldLayout.find(p => p.id === GameStore.editor.selectedPlotId);
-                if (plot) resizeTarget = { x: plot.x, y: plot.y, w: plot.width || 300, h: plot.height || 300 };
+                // [修复] 正确获取尺寸，如果未定义则回退
+                if (plot) {
+                    const w = plot.width || PLOTS[plot.templateId]?.width || 300;
+                    const h = plot.height || PLOTS[plot.templateId]?.height || 300;
+                    resizeTarget = { x: plot.x, y: plot.y, w, h };
+                }
             } else if (GameStore.editor.mode === 'floor' && GameStore.editor.selectedRoomId) {
                 const room = GameStore.rooms.find(r => r.id === GameStore.editor.selectedRoomId);
                 if (room) resizeTarget = { x: room.x, y: room.y, w: room.w, h: room.h };
@@ -649,7 +674,12 @@ const GameCanvas: React.FC = () => {
             let resizeTarget: { x: number, y: number, w: number, h: number } | null = null;
             if (GameStore.editor.mode === 'plot' && GameStore.editor.selectedPlotId) {
                 const plot = GameStore.worldLayout.find(p => p.id === GameStore.editor.selectedPlotId);
-                if (plot) resizeTarget = { x: plot.x, y: plot.y, w: plot.width || 300, h: plot.height || 300 };
+                // [修复] 悬停检测时也需要正确尺寸回退
+                if (plot) {
+                    const w = plot.width || PLOTS[plot.templateId]?.width || 300;
+                    const h = plot.height || PLOTS[plot.templateId]?.height || 300;
+                    resizeTarget = { x: plot.x, y: plot.y, w, h };
+                }
             } else if (GameStore.editor.mode === 'floor' && GameStore.editor.selectedRoomId) {
                 const room = GameStore.rooms.find(r => r.id === GameStore.editor.selectedRoomId);
                 if (room) resizeTarget = { x: room.x, y: room.y, w: room.w, h: room.h };
@@ -816,12 +846,13 @@ const GameCanvas: React.FC = () => {
                 onContextMenu={(e) => e.preventDefault()}
             />
             {/* Editor Instruction Overlay */}
-            {GameStore.editor.mode !== 'none' && (
+            {GameStore.editor.mode !== 'none' && showInstructions && (
                 <div className="absolute top-20 left-1/2 -translate-x-1/2 pointer-events-none bg-black/60 backdrop-blur-sm text-white text-xs px-4 py-2 rounded-lg border border-white/10 shadow-xl flex flex-col items-center gap-1 z-20">
                     {/* [新增] 关闭按钮 */}
                     <button 
+                        onMouseDown={(e) => e.stopPropagation()}
                         onClick={() => setShowInstructions(false)}
-                        className="absolute -top-2 -right-2 w-5 h-5 bg-red-500 hover:bg-red-600 text-white rounded-full flex items-center justify-center text-[10px] pointer-events-auto shadow-md transition-colors border border-white/20 z-30"
+                        className="absolute -top-2 -right-2 w-5 h-5 bg-red-500 hover:bg-red-600 text-white rounded-full flex items-center justify-center text-[10px] pointer-events-auto shadow-md transition-colors border border-white/20 z-30 cursor-pointer"
                         title="关闭指引"
                     >
                         ✕
@@ -831,7 +862,7 @@ const GameCanvas: React.FC = () => {
                     </div>
                     <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-[10px]">
                         <div className="flex items-center gap-2"><span className="text-xl">🖱️</span> <span>单击物体: 拿起 / 再次点击放置</span></div>
-                        <div className="flex items-center gap-2"><span className="text-xl">🤏</span> <span>拖拽四角: 调整物体大小</span></div>
+                        <div className="flex items-center gap-2"><span className="text-xl">🔄</span> <span>R 键: 旋转物体</span></div>
                         <div className="flex items-center gap-2"><span className="text-xl">✋</span> <span>漫游: 拖拽移动视角</span></div>
                         <div className="flex items-center gap-2"><span className="text-xl">⌨️</span> <span>Delete键: 删除选中物体</span></div>
                     </div>

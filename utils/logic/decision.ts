@@ -124,70 +124,74 @@ export const DecisionLogic = {
         }
 
         // === 🆕 6. 技能提升决策树 (Skill Improvement Logic) ===
-        for (let skillKey in sim.skills) {
-            let skillDesire = 0;
-            const currentLevel = sim.skills[skillKey];
-            const talent = sim.skillModifiers[skillKey] || 1;
+        // [修复] 只有儿童及以上年龄段才会产生练习技能的欲望
+        if (![AgeStage.Infant, AgeStage.Toddler].includes(sim.ageStage)) {
+            for (let skillKey in sim.skills) {
+                let skillDesire = 0;
+                const currentLevel = sim.skills[skillKey];
+                const talent = sim.skillModifiers[skillKey] || 1;
 
-            // A. 性格驱动 (Personality Drive)
-            // J型 (Judging): 规划性强，即使快乐也会提升自我
-            if (sim.mbti.includes('J')) {
-                skillDesire += 25; 
-                // 心情好时，J型人更有动力自我提升 ("Maslow's Bonus")
-                if (sim.mood > 75) skillDesire += 20; 
-            } else {
-                // P型: 随性，主要靠兴趣(Fun缺口)或突发灵感
-                if (sim.needs[NeedType.Fun] < 60) skillDesire += 15;
+                // A. 性格驱动 (Personality Drive)
+                // J型 (Judging): 规划性强，即使快乐也会提升自我
+                if (sim.mbti.includes('J')) {
+                    skillDesire += 25; 
+                    // 心情好时，J型人更有动力自我提升 ("Maslow's Bonus")
+                    if (sim.mood > 75) skillDesire += 20; 
+                } else {
+                    // P型: 随性，主要靠兴趣(Fun缺口)或突发灵感
+                    if (sim.needs[NeedType.Fun] < 60) skillDesire += 15;
+                }
+
+                // MBTI 维度偏好
+                if (sim.mbti.includes('N') && ['logic', 'creativity', 'charisma'].includes(skillKey)) skillDesire += 15;
+                if (sim.mbti.includes('S') && ['athletics', 'cooking', 'gardening', 'fishing'].includes(skillKey)) skillDesire += 15;
+
+                // B. 职业驱动 (Career Drive)
+                if (DecisionLogic.isCareerSkill(sim, skillKey)) {
+                    skillDesire += 30;
+                    // 绩效压力：如果有工作且绩效不满，极其渴望提升
+                    if (sim.workPerformance < 50 && sim.job.id !== 'unemployed') skillDesire += 40;
+                    else if (sim.workPerformance < 100) skillDesire += 20;
+                }
+
+                // C. 目标驱动 (Goal Drive)
+                if (DecisionLogic.isGoalSkill(sim, skillKey)) {
+                    skillDesire += 30; // 梦想的力量
+                }
+
+                // D. 特质修正 (Trait Modifiers)
+                if (sim.traits.includes('懒惰')) skillDesire -= 30; // 懒人即使有规划也不想动
+                if (sim.traits.includes('活力') && skillKey === 'athletics') skillDesire += 40;
+                if (sim.traits.includes('天才') && skillKey === 'logic') skillDesire += 30;
+                if (sim.traits.includes('有创意') && skillKey === 'creativity') skillDesire += 30;
+                if (sim.traits.includes('社恐') && skillKey === 'charisma') skillDesire -= 20;
+
+                // E. 状态修正 (Condition)
+                // 太累或太饿时，不想学习 (除非是工作狂 J + Career)
+                if (sim.needs[NeedType.Energy] < 30 || sim.needs[NeedType.Hunger] < 30) {
+                    skillDesire -= 50;
+                }
+                
+                // F. 娱乐补偿 (Fun Factor)
+                // 练习技能本身也能回复一定娱乐，所以缺娱乐时也会作为备选项
+                // 但对于 J 型人，这部分权重降低，更看重上面的规划权重
+                const funDeficit = 100 - sim.needs[NeedType.Fun];
+                skillDesire += funDeficit * 0.3; 
+
+                // 天赋倍率
+                skillDesire *= talent;
+
+                // 防止过度沉迷：如果技能已经很高，除非是完美主义者(J)，否则欲望稍降
+                if (currentLevel > 90 && !sim.mbti.includes('J')) skillDesire *= 0.5;
+
+                scores.push({ id: `skill_${skillKey}`, score: skillDesire, type: 'obj' });
             }
-
-            // MBTI 维度偏好
-            if (sim.mbti.includes('N') && ['logic', 'creativity', 'charisma'].includes(skillKey)) skillDesire += 15;
-            if (sim.mbti.includes('S') && ['athletics', 'cooking', 'gardening', 'fishing'].includes(skillKey)) skillDesire += 15;
-
-            // B. 职业驱动 (Career Drive)
-            if (DecisionLogic.isCareerSkill(sim, skillKey)) {
-                skillDesire += 30;
-                // 绩效压力：如果有工作且绩效不满，极其渴望提升
-                if (sim.workPerformance < 50 && sim.job.id !== 'unemployed') skillDesire += 40;
-                else if (sim.workPerformance < 100) skillDesire += 20;
-            }
-
-            // C. 目标驱动 (Goal Drive)
-            if (DecisionLogic.isGoalSkill(sim, skillKey)) {
-                skillDesire += 30; // 梦想的力量
-            }
-
-            // D. 特质修正 (Trait Modifiers)
-            if (sim.traits.includes('懒惰')) skillDesire -= 30; // 懒人即使有规划也不想动
-            if (sim.traits.includes('活力') && skillKey === 'athletics') skillDesire += 40;
-            if (sim.traits.includes('天才') && skillKey === 'logic') skillDesire += 30;
-            if (sim.traits.includes('有创意') && skillKey === 'creativity') skillDesire += 30;
-            if (sim.traits.includes('社恐') && skillKey === 'charisma') skillDesire -= 20;
-
-            // E. 状态修正 (Condition)
-            // 太累或太饿时，不想学习 (除非是工作狂 J + Career)
-            if (sim.needs[NeedType.Energy] < 30 || sim.needs[NeedType.Hunger] < 30) {
-                skillDesire -= 50;
-            }
-            
-            // F. 娱乐补偿 (Fun Factor)
-            // 练习技能本身也能回复一定娱乐，所以缺娱乐时也会作为备选项
-            // 但对于 J 型人，这部分权重降低，更看重上面的规划权重
-            const funDeficit = 100 - sim.needs[NeedType.Fun];
-            skillDesire += funDeficit * 0.3; 
-
-            // 天赋倍率
-            skillDesire *= talent;
-
-            // 防止过度沉迷：如果技能已经很高，除非是完美主义者(J)，否则欲望稍降
-            if (currentLevel > 90 && !sim.mbti.includes('J')) skillDesire *= 0.5;
-
-            scores.push({ id: `skill_${skillKey}`, score: skillDesire, type: 'obj' });
         }
 
         // 7. 特殊娱乐活动 (Cinema, Art, etc.)
         // 主要是为了快速回血 Fun
-        if (sim.needs[NeedType.Fun] < 60) {
+        // [修复] 只有儿童及以上才能看电影/看展
+        if (sim.needs[NeedType.Fun] < 60 && ![AgeStage.Infant, AgeStage.Toddler].includes(sim.ageStage)) {
             if (sim.money > 100) {
                 let cinemaScore = (100 - sim.needs[NeedType.Fun]) * 1.2;
                 scores.push({ id: 'cinema_3d', score: cinemaScore, type: 'obj' });
@@ -342,10 +346,17 @@ export const DecisionLogic = {
              }
         } 
         else if (type === NeedType.Hunger) {
-            candidates = candidates.concat(GameStore.furnitureIndex.get('hunger') || []); // 冰箱
-            candidates = candidates.concat(GameStore.furnitureIndex.get('eat_out') || []); // 餐厅
-            candidates = candidates.concat(GameStore.furnitureIndex.get('buy_drink') || []);
-            candidates = candidates.concat(GameStore.furnitureIndex.get('buy_food') || []); 
+            // [修复] 婴幼儿饥饿时不应该去找餐厅或自己做饭，只能用奶瓶或等人喂
+            // 目前简化为：如果家里有奶粉/食物 (hunger type objects like fridge/table)，或者等待保姆
+            if ([AgeStage.Infant, AgeStage.Toddler].includes(sim.ageStage)) {
+                // 只查找家里的食物源
+                candidates = candidates.concat(GameStore.furnitureIndex.get('hunger') || []);
+            } else {
+                candidates = candidates.concat(GameStore.furnitureIndex.get('hunger') || []); // 冰箱
+                candidates = candidates.concat(GameStore.furnitureIndex.get('eat_out') || []); // 餐厅
+                candidates = candidates.concat(GameStore.furnitureIndex.get('buy_drink') || []);
+                candidates = candidates.concat(GameStore.furnitureIndex.get('buy_food') || []); 
+            }
         } 
         else if (type === NeedType.Hygiene) {
              candidates = candidates.concat(GameStore.furnitureIndex.get('hygiene') || []);
@@ -382,6 +393,16 @@ export const DecisionLogic = {
                      const isOccupied = GameStore.sims.some(s => s.id !== sim.id && s.interactionTarget?.id === f.id);
                      if (isOccupied) return false;
                  }
+                 
+                 // 4. [修复] 婴幼儿专属过滤：不能使用高级设施
+                 if ([AgeStage.Infant, AgeStage.Toddler].includes(sim.ageStage)) {
+                     // 允许：床(energy/nap_crib), 玩具(play/play_blocks), 饮食(hunger), 地毯
+                     const allowed = ['energy', 'nap_crib', 'play', 'play_blocks', 'hunger', 'bladder', 'hygiene'];
+                     if (!allowed.includes(f.utility) && !f.tags?.includes('baby')) return false;
+                     // 排除灶台、健身器材等
+                     if (f.tags?.includes('stove') || f.tags?.includes('gym') || f.tags?.includes('computer')) return false;
+                 }
+
                  return true;
             });
 
