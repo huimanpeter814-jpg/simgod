@@ -1,7 +1,7 @@
 import { PALETTES, HOLIDAYS, JOBS, CONFIG, SURNAMES } from '../constants'; 
 import { PLOTS } from '../data/plots'; 
 import { WORLD_LAYOUT,STREET_PROPS  } from '../data/world'; 
-import { LogEntry, GameTime, Job, Furniture, RoomDef, HousingUnit, WorldPlot, SaveMetadata, EditorAction, EditorState, AgeStage } from '../types';
+import { LogEntry, GameTime, Job, Furniture, RoomDef, HousingUnit, WorldPlot, SaveMetadata, EditorAction, EditorState, AgeStage, SimAction } from '../types';
 import { Sim } from './Sim';
 import { SpatialHashGrid } from './spatialHash';
 import { PathFinder } from './pathfinding'; 
@@ -9,11 +9,12 @@ import { FamilyGenerator } from './logic/genetics';
 import { NarrativeSystem } from './logic/narrative';
 import { EditorManager } from '../managers/EditorManager';
 import { SaveManager, GameSaveData } from '../managers/SaveManager'; 
+import { NannyState, PickingUpState } from './logic/SimStates';
 
 // Re-exports
 export { Sim } from './Sim';
 export { minutes, getJobCapacity } from './simulationHelpers';
-export { drawAvatarHead } from './render/pixelArt'; 
+export { drawAvatarHead } from './render/pixelArt';
 
 export class GameStore {
     static sims: Sim[] = [];
@@ -26,7 +27,6 @@ export class GameStore {
     static selectedSimId: string | null = null;
     static listeners: (() => void)[] = [];
 
-    // [Refactor] 静态 EditorManager 实例
     static editor = new EditorManager();
 
     static rooms: RoomDef[] = [];
@@ -39,11 +39,9 @@ export class GameStore {
     static worldGrid: SpatialHashGrid = new SpatialHashGrid(100);
     static pathFinder: PathFinder = new PathFinder(CONFIG.CANVAS_W, CONFIG.CANVAS_H, 20);
 
-    // Toast Notification State
     static toastMessage: string | null = null;
     static toastTimer: any = null;
     
-
     static subscribe(cb: () => void) {
         this.listeners.push(cb);
         return () => { this.listeners = this.listeners.filter(l => l !== cb); };
@@ -69,40 +67,82 @@ export class GameStore {
         this.notify();
     }
 
-    // 🆕 核心逻辑更新：房屋分配
+    static spawnNanny(homeId: string, task: 'home_care' | 'drop_off' | 'pick_up' = 'home_care', targetChildId?: string) {
+        // 1. 检查该家庭是否已经有保姆
+        let nanny = this.sims.find(s => s.homeId === homeId && s.isTemporary);
+
+        const home = this.housingUnits.find(u => u.id === homeId);
+        if (!home) return;
+
+        // 如果没有保姆，生成一个
+        if (!nanny) {
+            nanny = new Sim({
+                x: home.x + home.area.w / 2,
+                y: home.y + home.area.h / 2,
+                surname: "Nanny",
+                ageStage: AgeStage.Adult,
+                gender: 'F', 
+                homeId: homeId,
+                money: 0
+            });
+
+            nanny.name = "家庭保姆";
+            nanny.isTemporary = true; 
+            nanny.clothesColor = '#575fcf';
+            nanny.job = { id: 'nanny', title: '全职保姆', level: 1, salary: 0, startHour: 0, endHour: 0 };
+            
+            this.sims.push(nanny);
+            this.addLog(null, `[服务] 已指派保姆前往 ${home.name}`, 'sys');
+        }
+
+        // 2. 根据任务类型指派行为
+        if (task === 'drop_off' && targetChildId) {
+            nanny.changeState(new PickingUpState());
+            nanny.carryingSimId = targetChildId; 
+            nanny.target = null; 
+            nanny.say("我来送宝宝上学", "sys");
+        } 
+        else if (task === 'pick_up' && targetChildId) {
+            nanny.changeState(new PickingUpState());
+            nanny.carryingSimId = targetChildId;
+            nanny.say("出发去接宝宝放学", "sys");
+        }
+        else {
+            if (nanny.action !== SimAction.PickingUp && nanny.action !== SimAction.Escorting) {
+                nanny.changeState(new NannyState());
+                nanny.say("宝宝乖，我在家陪你", "sys");
+            }
+        }
+        
+        this.notify();
+    }
+    
     static assignRandomHome(sim: Sim) {
         let targetTypes: string[] = [];
 
-        // 1. 老年人优先分配养老院
         if (sim.ageStage === AgeStage.Elder) {
             targetTypes = ['elder_care', 'apartment', 'public_housing'];
         } 
-        // 2. 富人分配别墅或高级公寓
         else if (sim.money > 5000) {
             targetTypes = ['villa', 'apartment'];
         } 
-        // 3. 穷人分配公屋/宿舍
         else if (sim.money < 2000) {
             targetTypes = ['public_housing'];
         } 
-        // 4. 中产阶级
         else {
             targetTypes = ['apartment', 'public_housing'];
         }
 
-        // 筛选符合类型的空闲房源
         let candidates = this.housingUnits.filter(unit => {
             const residents = this.sims.filter(s => s.homeId === unit.id).length;
             return targetTypes.includes(unit.type) && residents < unit.capacity;
         });
 
-        // 优先匹配首选类型 (数组第一个)
         const preferred = candidates.filter(u => u.type === targetTypes[0]);
         if (preferred.length > 0) {
             candidates = preferred;
         }
 
-        // 兜底：如果目标类型都满了，寻找任何有空位的房子 (排除养老院，除非是老人)
         if (candidates.length === 0) {
             candidates = this.housingUnits.filter(unit => {
                 const residents = this.sims.filter(s => s.homeId === unit.id).length;
@@ -113,15 +153,13 @@ export class GameStore {
 
         if (candidates.length === 0) {
             this.showToast("❌ 没有空闲的住处了！");
-            // 可以考虑添加 "homeless" 状态处理
             return;
         }
 
-        // 随机选择一个
         const newHome = candidates[Math.floor(Math.random() * candidates.length)];
         sim.homeId = newHome.id;
 
-        // 根据房屋类型生成不同的日志
+        // [修改] 搬家属于重要生活事件，但未必是最高优先级的系统通知，归类为 Life
         if (newHome.type === 'elder_care') {
             this.addLog(sim, `办理了入住手续，搬进了养老社区：${newHome.name}`, 'life');
         } else if (newHome.type === 'villa') {
@@ -132,10 +170,7 @@ export class GameStore {
         
         this.showToast(`✅ 已分配住址：${newHome.name}`);
 
-        // === 家人跟随搬家逻辑 ===
-        // 只有非养老院类型的搬家才会触发家人跟随
         if (newHome.type !== 'elder_care') {
-            // 1. 配偶跟随 (除非配偶已经是老人且住在养老院)
             const partner = this.sims.find(s => s.id === sim.partnerId && sim.relationships[s.id]?.isSpouse);
             if (partner && partner.homeId !== newHome.id) {
                 const partnerHome = this.housingUnits.find(u => u.id === partner.homeId);
@@ -145,7 +180,6 @@ export class GameStore {
                 }
             }
 
-            // 2. 未成年子女跟随
             const children = this.sims.filter(s => 
                 sim.childrenIds.includes(s.id) && 
                 ([AgeStage.Infant, AgeStage.Toddler, AgeStage.Child, AgeStage.Teen] as AgeStage[]).includes(s.ageStage)
@@ -161,7 +195,6 @@ export class GameStore {
         this.notify();
     }
 
-    // 重建世界逻辑
     static rebuildWorld(initial = false) {
         if (this.worldLayout.length === 0) {
             this.worldLayout = JSON.parse(JSON.stringify(WORLD_LAYOUT));
@@ -273,7 +306,6 @@ export class GameStore {
                 x: absX, 
                 y: absY, 
                 homeId: ownerUnit ? ownerUnit.id : undefined,
-                // 🆕 建议在 types.ts 的 Furniture 接口里加个可选的 plotId
                 // plotId: plot.id 
             });
         });
@@ -289,7 +321,6 @@ export class GameStore {
         if (attrs.type !== undefined && plot.customType !== attrs.type) { plot.customType = attrs.type; hasChange = true; }
 
         if (hasChange) {
-            // 简单的局部刷新：移除旧的，重新实例化
             this.rooms = this.rooms.filter(r => !r.id.startsWith(`${plotId}_`));
             this.furniture = this.furniture.filter(f => !f.id.startsWith(`${plotId}_`));
             this.housingUnits = this.housingUnits.filter(h => !h.id.startsWith(`${plotId}_`));
@@ -315,8 +346,6 @@ export class GameStore {
         });
     }
 
-    // === 🗺️ 地图数据管理 (Delegated to SaveManager) ===
-
     static getMapData() {
         return {
             version: "1.0",
@@ -329,19 +358,15 @@ export class GameStore {
 
     static importMapData(rawJson: any) {
         const validData = SaveManager.parseMapData(rawJson);
-        
         if (!validData) {
             this.showToast("❌ 导入失败：文件格式无效");
             return;
         }
-
         try {
             this.worldLayout = validData.worldLayout;
             this.rebuildWorld(true);
-            
             if (validData.rooms) this.rooms = [...this.rooms, ...validData.rooms];
             if (validData.customFurniture) this.furniture = [...this.furniture, ...validData.customFurniture];
-            
             this.initIndex();
             this.refreshFurnitureOwnership();
             this.showToast("✅ 地图导入成功！");
@@ -352,7 +377,6 @@ export class GameStore {
         }
     }
 
-    // === Proxy Methods to EditorManager ===
     static get history() { return this.editor.history; } 
     static get redoStack() { return this.editor.redoStack; }
 
@@ -377,34 +401,23 @@ export class GameStore {
     static removeFurniture(id: string) { this.editor.removeFurniture(id); }
     static changePlotTemplate(plotId: string, templateId: string) { this.editor.changePlotTemplate(plotId, templateId); }
     static finalizeMove(type: 'plot'|'furniture'|'room', id: string, startPos: any) { this.editor.finalizeMove(type, id, startPos); }
-    // 🆕 新增：地皮家具索引 (Plot ID -> Furniture List)
+    
     static furnitureByPlot: Map<string, Furniture[]> = new Map();
 
     static initIndex() {
         this.furnitureIndex.clear();
         this.worldGrid.clear();
         this.pathFinder.clear();
-        this.furnitureByPlot.clear(); // 清空旧索引
+        this.furnitureByPlot.clear(); 
 
         const passableTypes = ['rug_fancy', 'rug_persian', 'rug_art', 'pave_fancy', 'stripes', 'zebra', 'manhole', 'grass', 'concrete', 'tile', 'wood', 'run_track', 'water'];
 
         this.furniture.forEach(f => {
-            // 1. 原有逻辑：按功能索引
             if (!this.furnitureIndex.has(f.utility)) { this.furnitureIndex.set(f.utility, []); }
             this.furnitureIndex.get(f.utility)!.push(f);
             
-            // 2. 原有逻辑：空间哈希
             this.worldGrid.insert({ id: f.id, x: f.x, y: f.y, w: f.w, h: f.h, type: 'furniture', ref: f });
 
-            // 🆕 3. 新增逻辑：提取 plotId 并存入索引
-            // 假设家具ID格式为 "plotId_furnitureId" (你在 instantiatePlot 里是这么生成的)
-            // 我们通过字符串分割获取 plotId
-            const parts = f.id.split('_');
-            // 注意：因为 plotId 可能包含下划线（如 p_nw_1），我们需要一种更稳健的方式，
-            // 或者在 instantiatePlot 时给 Furniture 对象直接加上 plotId 属性（推荐）。
-            // 这里为了兼容现有数据，我们假设 ID 的前缀匹配：
-            // 更好的做法是：在 instantiatePlot 里给 furniture 加个 plotId 字段。
-            // 暂时用这种简易方式：找到包含这个家具的地皮
             const ownerPlot = this.worldLayout.find(p => f.id.startsWith(p.id));
             if (ownerPlot) {
                 if (!this.furnitureByPlot.has(ownerPlot.id)) {
@@ -431,13 +444,34 @@ export class GameStore {
         this.particles.push({ x, y, life: 1.0 });
     }
 
+    // 🆕 增强日志分类系统
     static addLog(sim: Sim | null, text: string, type: any, isAI = false) {
         const timeStr = `Y${this.time.year} M${this.time.month} | ${String(this.time.hour).padStart(2, '0')}:${String(this.time.minute).padStart(2, '0')}`;
-        let category: 'sys' | 'chat' | 'rel' | 'life' = 'chat';
-        if (['sys', 'family'].includes(type)) category = 'sys';
-        else if (['money', 'act', 'achievement', 'normal'].includes(type)) category = 'life';
-        else if (['love', 'jealous', 'rel_event', 'bad'].includes(type)) category = 'rel'; 
-        else category = 'chat'; 
+        
+        let category: 'sys' | 'chat' | 'rel' | 'life' | 'career' = 'life';
+
+        // 严格区分系统重要消息
+        // type 'sys' 一般用于: 新居民加入、重大节日、死亡、出生等
+        if (type === 'sys') {
+            // 进一步过滤，只有“重要”的才留在 sys，其他降级为 life 或 chat
+            if (text.includes("新家庭") || text.includes("新居民") || text.includes("离世") || text.includes("出生") || text.includes("新年") || text.includes("本月是")) {
+                category = 'sys';
+            } else {
+                category = 'life'; // 普通系统提示降级为生活
+            }
+        }
+        else if (type === 'money' || (sim && text.includes("工作") && !text.includes("聊"))) {
+            category = 'career';
+        }
+        else if (['love', 'jealous', 'rel_event', 'family'].includes(type)) {
+            category = 'rel';
+        }
+        else if (['chat', 'bad'].includes(type)) {
+            category = 'chat';
+        }
+        else {
+            category = 'life'; // act, achievement, normal
+        }
 
         const entry: LogEntry = {
             id: Math.random(),
@@ -452,8 +486,6 @@ export class GameStore {
         if (this.logs.length > 200) this.logs.pop();
         this.notify();
     }
-
-    // === 💾 存档系统 (Delegated to SaveManager) ===
 
     static getSaveSlots() {
         return SaveManager.getSaveSlots();
@@ -577,8 +609,6 @@ export class GameStore {
         this.spawnFamily(1);
     }
 }
-
-// ---------------- Game Loop Functions ----------------
 
 export function initGame() {
     GameStore.sims = [];
