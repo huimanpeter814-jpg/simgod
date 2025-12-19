@@ -46,6 +46,7 @@ export const INTERACTIONS: Record<string, InteractionHandler> = {
     'buy_drink': {
         verb: '咕嘟咕嘟', duration: 5,
         onStart: (sim, obj) => {
+            if ([AgeStage.Infant, AgeStage.Toddler].includes(sim.ageStage)) { sim.say("够不着...", 'bad'); return false; }
             if (sim.money >= 5) { 
                 sim.money -= 5; 
                 sim.needs[NeedType.Hunger] += 5; 
@@ -596,6 +597,9 @@ export const INTERACTIONS: Record<string, InteractionHandler> = {
         verb: '吃点心 🌭', 
         duration: 15,
         onStart: (sim, obj) => {
+            // [新增] 婴幼儿不能买吃的
+            if ([AgeStage.Infant, AgeStage.Toddler].includes(sim.ageStage)) { sim.say("...", 'bad'); return false; }
+            
             const cost = 20; 
             if (sim.money >= cost) { 
                 sim.money -= cost; 

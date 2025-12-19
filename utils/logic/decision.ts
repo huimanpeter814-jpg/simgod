@@ -3,6 +3,7 @@ import { GameStore } from '../simulation';
 import { CONFIG } from '../../constants'; 
 import { Furniture, SimAction, NeedType, AgeStage, JobType } from '../../types';
 import { getInteractionPos } from '../simulationHelpers';
+import { FeedBabyState, WaitingState, IdleState } from './SimStates';
 
 export const DecisionLogic = {
     isRestricted(sim: Sim, target: { x: number, y: number } | Furniture): boolean {
@@ -60,9 +61,93 @@ export const DecisionLogic = {
         return false;
     },
 
+    // 🆕 婴儿饥饿广播系统
+    triggerHungerBroadcast(sim: Sim) {
+        if (!sim.homeId) return;
+
+        // 寻找潜在看护人：在同一房子里，且处于清醒/空闲/居家状态的成年人/老人
+        const potentialCaregivers = GameStore.sims.filter(s => 
+            s.id !== sim.id &&
+            s.homeId === sim.homeId &&
+            s.isAtHome() && // 必须在家
+            (s.ageStage === AgeStage.Adult || s.ageStage === AgeStage.MiddleAged || s.ageStage === AgeStage.Elder) &&
+            // 排除正在应对紧急情况的人 (例如也在被喂食，或者生病严重)
+            s.action !== SimAction.FeedBaby && 
+            s.health > 20
+        );
+
+        // 评分筛选：保姆优先，其次是父母/祖父母，再次是其他
+        const candidates = potentialCaregivers.map(candidate => {
+            let score = 0;
+            
+            // 保姆最高优先级
+            if (candidate.isTemporary && candidate.job.id === 'nanny') score += 100;
+            
+            // 父母次之
+            if (candidate.id === sim.fatherId || candidate.id === sim.motherId) score += 50;
+            
+            // 🆕 祖父母：如果是老人且是家庭成员
+            if (candidate.ageStage === AgeStage.Elder && candidate.familyId === sim.familyId) {
+                // 检查是否是直系祖父母 (如果是父母的父母)
+                const father = GameStore.sims.find(p => p.id === sim.fatherId);
+                const mother = GameStore.sims.find(p => p.id === sim.motherId);
+                if ((father && (father.fatherId === candidate.id || father.motherId === candidate.id)) ||
+                    (mother && (mother.fatherId === candidate.id || mother.motherId === candidate.id))) {
+                    score += 60; // 隔代亲，权重甚至高于父母(忙碌时)
+                } else {
+                    score += 40; // 普通同住老人
+                }
+            }
+
+            // 距离权重
+            const dist = Math.sqrt(Math.pow(candidate.pos.x - sim.pos.x, 2) + Math.pow(candidate.pos.y - sim.pos.y, 2));
+            score -= dist * 0.01;
+
+            // 状态权重：闲着的人优先
+            if (candidate.action === SimAction.Idle || candidate.action === SimAction.Wandering) score += 30;
+            if (candidate.action === SimAction.Working) score -= 50; // 在家办公也不容易
+            if (candidate.action === SimAction.Sleeping) score -= 20; // 睡觉会被吵醒，但权重较低，毕竟要喂奶
+
+            return { sim: candidate, score };
+        });
+
+        // 排序
+        candidates.sort((a, b) => b.score - a.score);
+
+        const best = candidates[0];
+        if (best && best.score > 0) {
+            const caregiver = best.sim;
+            
+            // 强制打断当前行为
+            caregiver.interactionTarget = null;
+            caregiver.target = null;
+            // 切换到喂食状态
+            caregiver.changeState(new FeedBabyState(sim.id));
+            
+            sim.say("哇！🍼 (饿了)", 'family');
+            sim.changeState(new WaitingState()); // 婴儿等待喂食
+            
+            if (caregiver.action === SimAction.Sleeping) caregiver.say("哈欠...来了来了", 'normal');
+            else caregiver.say("宝宝饿了吗？", 'family');
+            
+            return true;
+        } else {
+            sim.say("Waaaaaah!!! (没人理)", 'bad');
+            return false;
+        }
+    },
+
     decideAction(sim: Sim) {
         // 1. 生存危机检查 (优先级最高)
         if (sim.health < 60 || sim.hasBuff('sick')) { DecisionLogic.findObject(sim, 'healing'); return; }
+
+        // 🆕 [修复] 婴儿饥饿处理：不再自己找物体，而是广播
+        if ([AgeStage.Infant, AgeStage.Toddler].includes(sim.ageStage) && sim.needs[NeedType.Hunger] < 50) {
+            const success = DecisionLogic.triggerHungerBroadcast(sim);
+            if (success) return; 
+            // 如果没人理，尝试自己吃（如果家里有现成食物），或者继续哭
+            // 这里为了防止死循环，如果没人理，允许 fallback 到原来的逻辑 (findObject 只能找到地上的奶瓶)
+        }
 
         let critical = [
             { id: NeedType.Energy, val: sim.needs[NeedType.Energy] },
@@ -104,7 +189,8 @@ export const DecisionLogic = {
 
         // 4. 购物欲望
         // 快乐或有钱时想花钱
-        if (sim.money > 500 && (sim.mood > 80 || sim.hasBuff('shopping_spree'))) { 
+        // 🆕 [修复] 婴儿禁止购物
+        if (![AgeStage.Infant, AgeStage.Toddler].includes(sim.ageStage) && sim.money > 500 && (sim.mood > 80 || sim.hasBuff('shopping_spree'))) { 
             scores.push({ id: 'buy_item', score: 40 + (sim.money / 200), type: 'obj' }); 
         }
 
