@@ -1,15 +1,14 @@
-
 import { Sim } from '../Sim';
 import { GameStore } from '../simulation';
 import { JOBS, BUFFS, HOLIDAYS } from '../../constants';
 import { Furniture, JobType, SimAction, AgeStage, Job } from '../../types';
-import { CommutingState, IdleState } from './SimStates';
+import { CommutingState, IdleState, WorkingState } from './SimStates';
 import { SocialLogic } from './social';
+import { SkillLogic } from './SkillLogic'; // 🆕 引入 SkillLogic
 
-// 🆕 全职业适应性评分标准 (Job Preferences)
+// Job Preferences logic remains the same...
 const JOB_PREFERENCES: Record<JobType, (sim: Sim) => number> = {
     [JobType.Unemployed]: () => -9999,
-
     [JobType.Internet]: (sim) => {
         let s = sim.iq * 0.6 + sim.skills.logic * 3;
         if (sim.mbti.includes('T')) s += 20;
@@ -25,13 +24,13 @@ const JOB_PREFERENCES: Record<JobType, (sim: Sim) => number> = {
         return s;
     },
     [JobType.Business]: (sim) => {
-        let s = sim.eq * 0.5 + sim.appearanceScore * 0.4;
+        let s = sim.eq * 0.4 + (sim.skills.charisma || 0) * 3 + sim.appearanceScore * 0.3;
         if (sim.mbti.includes('E') && sim.mbti.includes('J')) s += 30;
         if (sim.lifeGoal.includes('富翁') || sim.lifeGoal.includes('大亨') || sim.lifeGoal.includes('领袖')) s += 50;
         return s;
     },
     [JobType.Store]: (sim) => {
-        let s = sim.eq * 0.3 + sim.constitution * 0.3 + 30; 
+        let s = sim.eq * 0.3 + (sim.skills.charisma || 0) * 1.5 + sim.constitution * 0.3 + 30; 
         if (sim.ageStage === AgeStage.Teen) s += 20;
         return s;
     },
@@ -47,13 +46,13 @@ const JOB_PREFERENCES: Record<JobType, (sim: Sim) => number> = {
         return s;
     },
     [JobType.School]: (sim) => {
-        let s = sim.iq * 0.3 + sim.eq * 0.3;
+        let s = sim.iq * 0.3 + sim.eq * 0.3 + (sim.skills.charisma || 0) * 1;
         if (sim.mbti.includes('S') && sim.mbti.includes('J')) s += 25;
         if (sim.lifeGoal.includes('家庭') || sim.lifeGoal.includes('桃李') || sim.lifeGoal.includes('岁月静好')) s += 50;
         return s;
     },
     [JobType.Nightlife]: (sim) => {
-        let s = (sim.skills.music || 0) * 2 + (sim.skills.dancing || 0) * 2 + sim.appearanceScore * 0.5;
+        let s = (sim.skills.music || 0) * 2 + (sim.skills.dancing || 0) * 2 + (sim.skills.charisma || 0) * 1.5 + sim.appearanceScore * 0.5;
         if (sim.mbti.includes('E') && sim.mbti.includes('P')) s += 40;
         if (sim.lifeGoal.includes('派对') || sim.lifeGoal.includes('万人迷')) s += 60;
         return s;
@@ -213,7 +212,6 @@ export const CareerLogic = {
     },
 
     checkSchedule(sim: Sim) {
-        // 🆕 [修复] 临时角色(保姆)不参与常规工作调度
         if (sim.isTemporary) return;
 
         if ([AgeStage.Infant, AgeStage.Toddler, AgeStage.Elder].includes(sim.ageStage) || sim.job.id === 'unemployed') return;
@@ -278,7 +276,7 @@ export const CareerLogic = {
         let dailyPerf = 0;
         
         if (sim.job.companyType === JobType.Internet && sim.iq > 70) dailyPerf += 3;
-        if (sim.job.companyType === JobType.Business && sim.eq > 70) dailyPerf += 3;
+        if (sim.job.companyType === JobType.Business && (sim.eq > 70 || (sim.skills.charisma || 0) > 20)) dailyPerf += 3;
         if (sim.job.companyType === JobType.Hospital && sim.constitution > 70) dailyPerf += 3;
         
         if (sim.mood > 80) dailyPerf += 5;
@@ -351,7 +349,6 @@ export const CareerLogic = {
         sim.changeState(new IdleState());
     },
 
-    // ✅ [修复] 补回了这个方法
     checkCareerSatisfaction(sim: Sim) {
         if (sim.job.id === 'unemployed') return;
         
@@ -383,7 +380,7 @@ export const CareerLogic = {
         sim.job = JOBS.find(j => j.id === 'unemployed')!;
         sim.workplaceId = undefined;
         sim.workPerformance = 0;
-        sim.consecutiveAbsences = 0; // 重置旷工计数
+        sim.consecutiveAbsences = 0; 
         
         if (reason === 'fired') {
             GameStore.addLog(sim, `被公司开除了 (${oldTitle})`, 'bad');
