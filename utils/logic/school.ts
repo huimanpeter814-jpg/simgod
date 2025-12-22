@@ -171,8 +171,12 @@ export const SchoolLogic = {
             }
         } 
         else {
+            // 放学逻辑 (Pick-up)
             if (inKindergarten) {
-                if (sim.action !== SimAction.BeingEscorted && sim.action !== SimAction.Waiting) {
+                // [核心修复] 
+                // 只要不是正在“被护送”状态，就应该检查是否需要接送。
+                // 即使是 Waiting 状态，如果检测到没人来接(requestEscort内部判断)，也应该重新发起呼叫。
+                if (sim.action !== SimAction.BeingEscorted) {
                     SchoolLogic.requestEscort(sim, 'pick_up');
                 }
             }
@@ -182,7 +186,10 @@ export const SchoolLogic = {
     checkSchoolSchedule(sim: Sim) {
         if (![AgeStage.Child, AgeStage.Teen].includes(sim.ageStage)) return;
 
+        // 1. 确保能获取到配置
         const config = sim.ageStage === AgeStage.Child ? SCHOOL_CONFIG.elementary : SCHOOL_CONFIG.high_school;
+        if (!config) return; // 安全检查
+
         const currentMonth = GameStore.time.month;
         const isWinterBreak = [1, 2].includes(currentMonth);
         const isSummerBreak = [7, 8].includes(currentMonth);
@@ -191,6 +198,7 @@ export const SchoolLogic = {
         if (isSummerBreak) { if (Math.random() < 0.001) sim.say("暑假万岁！🍉", 'act'); return; }
         if (HOLIDAYS[currentMonth]?.type === 'break') return;
 
+        // 2. 确保时间判断包含 "分钟"
         const hour = GameStore.time.hour + GameStore.time.minute/60;
 
         if (hour >= config.startHour && hour < config.endHour) {
