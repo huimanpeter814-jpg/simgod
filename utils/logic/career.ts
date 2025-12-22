@@ -179,9 +179,19 @@ export const CareerLogic = {
                 targetType = 'hospital'; 
                 break;
             case JobType.School:
-                if (sim.job.id.includes('high')) targetType = 'high_school';
-                else if (sim.job.id.includes('elem')) targetType = 'elementary_school';
-                else targetType = 'kindergarten';
+                // [核心修复] 根据 Job ID 或 Title 细分去向
+                // 假设你的职业ID命名类似于 'teacher_high', 'teacher_elem', 'teacher_kindergarten'
+                // 或者职位名称包含 '中', '小', '幼'
+                if (sim.job.id.includes('high') || sim.job.title.includes('中') || sim.job.title.includes('高')) {
+                    targetType = 'high_school'; // 对应 plots.ts 中的 type
+                } 
+                else if (sim.job.id.includes('elem') || sim.job.id.includes('primary') || sim.job.title.includes('小')) {
+                    targetType = 'elementary_school';
+                } 
+                else {
+                    // 默认为幼儿园 (kindergarten)
+                    targetType = 'kindergarten';
+                }
                 break;
             case JobType.ElderCare:
                 targetType = 'elder_care';
