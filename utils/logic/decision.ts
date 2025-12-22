@@ -222,14 +222,17 @@ export const DecisionLogic = {
         if (best && best.score > 0) {
             const caregiver = best.sim;
             
-            // 强制打断当前行为
+            // [修复] 强制清理家长当前的所有交互
+            caregiver.finishAction(); // 先清理旧状态
             caregiver.interactionTarget = null;
             caregiver.target = null;
+            caregiver.path = [];
+            
             // 切换到喂食状态
             caregiver.changeState(new FeedBabyState(sim.id));
             
             sim.say("哇！🍼 (饿了)", 'family');
-            sim.changeState(new WaitingState()); // 婴儿等待喂食
+            sim.changeState(new WaitingState());
             
             if (caregiver.action === SimAction.Sleeping) caregiver.say("哈欠...来了来了", 'normal');
             else caregiver.say("宝宝饿了吗？", 'family');
@@ -594,7 +597,7 @@ export const DecisionLogic = {
             candidates = GameStore.furnitureIndex.get(utility) || [];
         }
 
-        // === [新增] 优先回家解决生理需求逻辑 ===
+        // === [新增/修改] 优先回家解决生理需求逻辑 ===
         const basicNeeds = [NeedType.Hunger, NeedType.Energy, NeedType.Bladder, NeedType.Hygiene];
         let forceHome = false;
 
@@ -616,78 +619,102 @@ export const DecisionLogic = {
 
         // 过滤不可用对象
         if (candidates.length) {
-            candidates = candidates.filter((f: Furniture)=> {
-                 // 1. 权限检查 (私宅/学校/夜店)
-                 if (DecisionLogic.isRestricted(sim, f)) return false;
-                 
-                 // [新增] 归家优先逻辑
-                 if (forceHome) {
-                     // 如果家里有这类设施，就只允许回家用
-                     // 如果家里没有 (比如家里没买灶台)，则允许用外面的
-                     const hasHomeItem = candidates.some(c => c.homeId === sim.homeId);
-                     if (hasHomeItem) {
-                         if (f.homeId !== sim.homeId) return false;
-                     }
-                 }
+        // [修复] 使用 validCandidates 变量来暂存筛选结果，避免直接覆盖 candidates 导致无法进行兜底回退
+        let validCandidates = candidates.filter((f: Furniture)=> {
+                // 1. 权限检查 (私宅/学校/夜店)
+                if (DecisionLogic.isRestricted(sim, f)) return false;
+                
+                // [新增] 归家优先逻辑 (第一轮严格筛选)
+                if (forceHome) {
+                    // 如果强制回家，必须是自己家的设施
+                    if (f.homeId !== sim.homeId) return false;
+                }
 
-                 // 2. 经济检查
-                 if (type === NeedType.Hunger && sim.money < 20) {
-                     // 没钱只能用免费的 (冰箱/公共饮水)
-                     if (f.cost && f.cost > 0) return false;
-                 }
-                 if (f.cost && f.cost > sim.money) return false;
-                 
-                 // 3. 占用检查
-                 if (f.reserved && f.reserved !== sim.id) return false;
-                 if (!f.multiUser) {
-                     const isOccupied = GameStore.sims.some(s => s.id !== sim.id && s.interactionTarget?.id === f.id);
-                     if (isOccupied) return false;
-                 }
-                 
-                 // 4. [修复] 婴幼儿专属过滤：不能使用高级设施
-                 if ([AgeStage.Infant, AgeStage.Toddler].includes(sim.ageStage)) {
-                     // 允许：床(energy/nap_crib), 玩具(play/play_blocks), 饮食(hunger), 地毯
-                     const allowed = ['energy', 'nap_crib', 'play', 'play_blocks', 'hunger', 'bladder', 'hygiene'];
-                     if (!allowed.includes(f.utility) && !f.tags?.includes('baby')) return false;
-                     // 排除灶台、健身器材等
-                     if (f.tags?.includes('stove') || f.tags?.includes('gym') || f.tags?.includes('computer')) return false;
-                 }
+                // 2. 经济检查
+                if (type === NeedType.Hunger && sim.money < 20) {
+                    // 没钱只能用免费的 (冰箱/公共饮水)
+                    if (f.cost && f.cost > 0) return false;
+                }
+                if (f.cost && f.cost > sim.money) return false;
+                
+                // 3. 占用检查
+                if (f.reserved && f.reserved !== sim.id) return false;
+                if (!f.multiUser) {
+                    const isOccupied = GameStore.sims.some(s => s.id !== sim.id && s.interactionTarget?.id === f.id);
+                    if (isOccupied) return false;
+                }
+                
+                // 4. 婴幼儿专属过滤
+                if ([AgeStage.Infant, AgeStage.Toddler].includes(sim.ageStage)) {
+                    const allowed = ['energy', 'nap_crib', 'play', 'play_blocks', 'hunger', 'bladder', 'hygiene'];
+                    if (!allowed.includes(f.utility) && !f.tags?.includes('baby')) return false;
+                    if (f.tags?.includes('stove') || f.tags?.includes('gym') || f.tags?.includes('computer')) return false;
+                }
 
-                 return true;
+                return true;
+        });
+
+        // [兜底逻辑] 如果因为“强制回家”导致找不到任何可用设施，则放宽限制（允许去公共场所）
+        if (validCandidates.length === 0 && forceHome) {
+            // console.log(`${sim.name} 家里没设施，尝试寻找公共设施...`);
+            validCandidates = candidates.filter((f: Furniture) => {
+                // 依然要检查基础权限
+                if (DecisionLogic.isRestricted(sim, f)) return false;
+                
+                // 只要不是别人的私宅就可以（公共设施 homeId 为空，或者属于 public）
+                if (f.homeId && f.homeId !== sim.homeId) return false; 
+                
+                // 重复之前的通用检查 (经济/占用/婴幼儿)
+                if (type === NeedType.Hunger && sim.money < 20 && f.cost && f.cost > 0) return false;
+                if (f.cost && f.cost > sim.money) return false;
+                if (f.reserved && f.reserved !== sim.id) return false;
+                if (!f.multiUser) {
+                    const isOccupied = GameStore.sims.some(s => s.id !== sim.id && s.interactionTarget?.id === f.id);
+                    if (isOccupied) return false;
+                }
+                if ([AgeStage.Infant, AgeStage.Toddler].includes(sim.ageStage)) {
+                    const allowed = ['energy', 'nap_crib', 'play', 'play_blocks', 'hunger', 'bladder', 'hygiene'];
+                    if (!allowed.includes(f.utility) && !f.tags?.includes('baby')) return false;
+                    if (f.tags?.includes('stove') || f.tags?.includes('gym') || f.tags?.includes('computer')) return false;
+                }
+                return true;
+            });
+        }
+
+        // 将最终筛选结果赋值回 candidates
+        candidates = validCandidates;
+
+        if (candidates.length) {
+            // 距离排序
+            candidates.sort((a: Furniture, b: Furniture) => {
+                const distA = Math.pow(a.x - sim.pos.x, 2) + Math.pow(a.y - sim.pos.y, 2);
+                const distB = Math.pow(b.x - sim.pos.x, 2) + Math.pow(b.y - sim.pos.y, 2);
+                return distA - distB;
             });
 
-            if (candidates.length) {
-                // 距离排序
-                candidates.sort((a: Furniture, b: Furniture) => {
-                    const distA = Math.pow(a.x - sim.pos.x, 2) + Math.pow(a.y - sim.pos.y, 2);
-                    const distB = Math.pow(b.x - sim.pos.x, 2) + Math.pow(b.y - sim.pos.y, 2);
-                    return distA - distB;
-                });
-
-                // 随机取最近的几个，避免所有人去同一个最近的椅子
-                let poolSize = 3;
-                if (type === NeedType.Fun || type === 'play' || type === 'art') poolSize = 10; 
-                else if (type === NeedType.Hunger) poolSize = 5;  
-                
-                let obj = candidates[Math.floor(Math.random() * Math.min(candidates.length, poolSize))];
-                
-                const { anchor } = getInteractionPos(obj);
-                sim.target = anchor;
-                sim.interactionTarget = obj;
-                
-                sim.startMovingToInteraction();
-                return;
-            } else {
-                if (type === 'healing') { sim.say("医院没床位了...", 'bad'); } 
-                else if (type === NeedType.Hunger) { sim.say("好饿...没吃的", 'bad'); }
-                else { 
-                    // 找不到技能物品时，提示
-                    if (type.includes('skill') || type.includes('play')) sim.say("找不到地方练习...", 'sys');
-                }
+            // 随机取最近的几个
+            let poolSize = 3;
+            if (type === NeedType.Fun || type === 'play' || type === 'art') poolSize = 10; 
+            else if (type === NeedType.Hunger) poolSize = 5;  
+            
+            let obj = candidates[Math.floor(Math.random() * Math.min(candidates.length, poolSize))];
+            
+            const { anchor } = getInteractionPos(obj);
+            sim.target = anchor;
+            sim.interactionTarget = obj;
+            
+            sim.startMovingToInteraction();
+            return;
+        } else {
+            if (type === 'healing') { sim.say("医院没床位了...", 'bad'); } 
+            else if (type === NeedType.Hunger) { sim.say("好饿...没吃的", 'bad'); }
+            else { 
+                if (type.includes('skill') || type.includes('play')) sim.say("找不到地方练习...", 'sys');
             }
         }
-        if (!isBaby)sim.startWandering();
-    },
+    }
+    if (!isBaby) sim.startWandering();
+},
 
     findHuman(sim: Sim) {
         let others = GameStore.sims.filter(s => s.id !== sim.id && s.action !== SimAction.Sleeping && s.action !== SimAction.Working);
