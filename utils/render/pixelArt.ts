@@ -1,9 +1,12 @@
 import { SimData, AgeStage } from '../../types';
 import { getAsset } from '../assetLoader';
+import { Graphics, ColorSource } from 'pixi.js';
 
 // ==========================================
 // 🎨 像素风格渲染库
-// 包含：家具绘制、程序化发型、头像合成
+// 包含：
+// 1. Canvas 2D 绘图 (用于 UI 头像、程序化发型)
+// 2. Pixi Graphics 绘图 (用于高性能场景家具)
 // ==========================================
 
 // --- 🛠️ 像素绘图辅助函数 (Pixel Helpers) ---
@@ -66,8 +69,7 @@ const drawPixelHair = (
     let effectiveStyle = styleIndex;
 
     if (ageStage === 'Elder') {
-        const greyScale = ['#dcdde1', '#7f8fa6', '#b2bec3'];
-        finalColor = greyScale[styleIndex % greyScale.length];
+        finalColor = color;
         if (styleIndex % 3 === 0) effectiveStyle = 9; // 地中海
     }
 
@@ -333,59 +335,87 @@ export function drawAvatarHead(
     y: number, 
     size: number, 
     sim: SimData,
-    renderLayer: 'all' | 'back' | 'front' = 'all'
+    renderLayer: 'all' | 'back' | 'front' = 'all' // 此参数在图片模式下意义不大，保留兼容性
 ) {
-    let s = size;
+    // 基础尺寸是 48x48 (素材尺寸)
+    // size 参数通常是期望的半径或一半大小，我们需要计算缩放比例
+    // 假设目标是绘制一个完整的头像区域
+    
+    const bodyImg = getAsset(sim.appearance.body);
+    const outfitImg = getAsset(sim.appearance.outfit);
     const hairImg = getAsset(sim.appearance.hair);
-    const faceImg = getAsset(sim.appearance.face);
 
-    const hash = sim.id.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
-    const styleIndex = hash % 17;
+    // === 核心修改：只截取头部区域 ===
+    // 假设 48x48 素材中，头部位于上方中间
+    // sourceX/Y/W/H: 在原图上裁剪的区域 (头部框)
+    const srcX = 15; 
+    const srcY = 10;  
+    const srcS = 50; // 截取 20x20 像素的头部区域
 
-    // --- 第一层：后发 ---
+    // destX/Y/W/H: 在画布上绘制的区域 (放大显示)
+    const destSize = size * 2.5; // 根据传入的半径 size 放大填充
+    const destX = x - destSize / 2;
+    const destY = y - destSize / 2;
+
+    // 辅助绘制函数
+    const drawLayer = (img: HTMLImageElement | null, tintColor?: string) => {
+        if (img) {
+            ctx.imageSmoothingEnabled = false; // 保持像素清晰
+
+            if (tintColor) {
+                // 🆕 染色逻辑
+                const buffer = document.createElement('canvas');
+                buffer.width = destSize;
+                buffer.height = destSize;
+                const bCtx = buffer.getContext('2d');
+                if (bCtx) {
+                    bCtx.imageSmoothingEnabled = false;
+
+                    // 1. 绘制原图 (裁切后)
+                    bCtx.drawImage(img, srcX, srcY, srcS, srcS, 0, 0, destSize, destSize);
+
+                    // 2. 正片叠底着色 (适用于灰度/白底素材)
+                    bCtx.globalCompositeOperation = 'multiply';
+                    bCtx.fillStyle = tintColor;
+                    bCtx.fillRect(0, 0, destSize, destSize);
+
+                    // 3. 恢复透明度 (将颜色限制在原图非透明区域)
+                    bCtx.globalCompositeOperation = 'destination-in';
+                    bCtx.drawImage(img, srcX, srcY, srcS, srcS, 0, 0, destSize, destSize);
+
+                    // 4. 绘制到主画布
+                    ctx.drawImage(buffer, destX, destY);
+                }
+            } else {
+                // 原逻辑：直接绘制
+                // 参数详解: 图片, 裁剪X, 裁剪Y, 裁剪宽, 裁剪高, 绘制X, 绘制Y, 绘制宽, 绘制高
+                ctx.drawImage(img, srcX, srcY, srcS, srcS, destX, destY, destSize, destSize);
+            }
+        }
+    };
+
     if (renderLayer === 'all' || renderLayer === 'back') {
-        if (!hairImg) {
-            drawPixelHair(ctx, x, y, s, sim.hairColor, styleIndex, sim.ageStage, 'back');
-        }
+        drawLayer(bodyImg);
     }
-
-    if (renderLayer === 'back') return;
-
-    // --- 第二层：脸部 ---
-    if (faceImg) {
-        ctx.drawImage(faceImg, x - s, y - s, s * 2, s * 2);
-    } else {
-        ctx.fillStyle = sim.skinColor;
-        // 脸型改为伪圆角矩形
-        drawPseudoRoundRect(ctx, x - s, y - s, s * 2, s * 2, sim.skinColor);
-
-        ctx.fillStyle = '#121212';
-        const eyeSize = Math.max(2, s * 0.15);
-        const eyeOffset = s * 0.45;
-        const eyeyOffset = s * 0.2;
-        ctx.fillRect(x - eyeOffset, y + eyeyOffset, eyeSize, eyeSize);     
-        ctx.fillRect(x + eyeOffset - eyeSize, y + eyeyOffset, eyeSize, eyeSize); 
-        
-        if (sim.ageStage === 'Toddler' || sim.ageStage === 'Child' || sim.gender === 'F') {
-            ctx.fillStyle = 'rgba(255, 100, 100, 0.31)';
-            ctx.fillRect(x - eyeOffset - 2, y + 6, 4, 2);
-            ctx.fillRect(x + eyeOffset - 2, y + 6, 4, 2);
-        }
-        
-        if (sim.ageStage === 'Elder') {
-            ctx.fillStyle = 'rgba(0,0,0,0.1)';
-            ctx.fillRect(x - s + 4, y + 8, 4, 1);
-            ctx.fillRect(x + s - 8, y + 8, 4, 1);
-        }
-    }
-
-    // --- 第三层：前发 ---
+    
     if (renderLayer === 'all' || renderLayer === 'front') {
-        if (hairImg) {
-            ctx.drawImage(hairImg, x - s-(s*0.25), y - s - (s * 0.3), s * 2.5, s * 2.5);
-        } else {
-            drawPixelHair(ctx, x, y, s, sim.hairColor, styleIndex, sim.ageStage, 'front');
-        }
+        drawLayer(outfitImg);
+        // 🆕 传入发色进行绘制
+        drawLayer(hairImg, sim.hairColor);
+    }
+
+    // 兜底逻辑：如果没有图片，画一个带问号的圆圈
+    if (!bodyImg && !outfitImg && !hairImg) {
+        ctx.fillStyle = sim.skinColor || '#cccccc';
+        ctx.beginPath();
+        ctx.arc(x, y, size * 0.8, 0, Math.PI * 2);
+        ctx.fill();
+        
+        ctx.fillStyle = 'rgba(0,0,0,0.5)';
+        ctx.font = 'bold 12px monospace';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText("?", x, y);
     }
 }
 
@@ -417,7 +447,7 @@ export const drawPixelProp = (ctx: CanvasRenderingContext2D, f: any, p: any) => 
     }
 };
 
-// 内部绘制函数 (合并了上传文件中的丰富图案)
+// 内部绘制函数 (Canvas 版本 - 保留用于 Ghost 预览等)
 const drawInternal = (ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, f: any, p: any) => {
     const { color, pixelPattern } = f;
     const cx = x + w / 2;
@@ -825,4 +855,279 @@ const drawInternal = (ctx: CanvasRenderingContext2D, x: number, y: number, w: nu
             else for(let i=4; i<h-4; i+=6) ctx.fillRect(x+4, y+i, w-8, 4);
         }
     }
+};
+
+// ==========================================
+// Part B: Pixi Graphics 绘制逻辑 (新迁移内容)
+// ==========================================
+
+export const drawPixiFurniture = (g: Graphics, w: number, h: number, f: any) => {
+    const color = f.color || '#cccccc';
+    const pattern = f.pixelPattern || '';
+    const cx = w / 2;
+    const cy = h / 2;
+
+    // 辅助：Pixi 绘图简写
+    const rect = (x: number, y: number, w: number, h: number, c: ColorSource) => g.rect(x, y, w, h).fill(c);
+    const circle = (cx: number, cy: number, r: number, c: ColorSource) => g.circle(cx, cy, r).fill(c);
+
+    // --- 🌳 自然景观 ---
+    if (pattern === 'tree_pixel') {
+        const trunkW = w * 0.3;
+        rect((w - trunkW) / 2, h * 0.6, trunkW, h * 0.4, '#6D4C41');
+        circle(cx, cy - 5, w/2, color);
+        circle(cx - 8, cy + 5, w/3, color);
+        circle(cx + 8, cy + 5, w/3, color);
+        rect(cx - 10, cy - 10, 4, 4, '#ff7675');
+        rect(cx + 5, cy, 4, 4, '#ff7675');
+        return;
+    }
+    if (pattern === 'bush') {
+        rect(0, h * 0.2, w, h * 0.8, '#2E7D32');
+        rect(4, 0, w - 8, h * 0.4, '#4CAF50');
+        rect(6, 10, 4, 4, '#FF5252');
+        rect(w - 10, 15, 4, 4, '#FF5252');
+        return;
+    }
+    if (pattern === 'flower_rose') {
+        circle(cx, cy, w/2, '#27ae60');
+        circle(cx - 5, cy - 5, 4, '#d63031');
+        circle(cx + 5, cy + 5, 4, '#d63031');
+        circle(cx + 5, cy - 5, 4, '#d63031');
+        circle(cx - 5, cy + 5, 4, '#d63031');
+        return;
+    }
+
+    // --- 🎹 乐器 ---
+    if (pattern === 'piano') {
+        rect(0, 0, w, h, '#1e1e1e');
+        if (h > w) { // 竖向
+            rect(w * 0.6, 2, w * 0.35, h - 4, '#ffffff'); 
+        } else { // 横向
+            rect(0, h * 0.4, w, h * 0.2, '#3d3d3d');
+            rect(2, h * 0.6, w - 4, h * 0.35, '#ffffff'); 
+            for (let i = 10; i < w - 10; i += 12) {
+                if (i % 24 !== 0) rect(i, h * 0.6, 6, h * 0.2, '#000000');
+            }
+        }
+        return;
+    }
+
+    // --- 🏡 居家 ---
+    if (pattern && pattern.startsWith('bed')) {
+        rect(0, 0, w, 8, '#5D4037'); // 床头
+        rect(2, 8, w - 4, h - 8, color); // 床身
+        rect(2, 30, w - 4, h - 32, 'rgba(255,255,255,0.8)'); // 被子
+        rect(6, 12, w / 2 - 10, 12, '#FFFFFF'); // 枕头
+        if (pattern === 'bed_king') rect(w / 2 + 4, 12, w / 2 - 10, 12, '#FFFFFF');
+        return;
+    }
+    
+    if (pattern === 'kitchen' || pattern === 'fridge') {
+        rect(0, 0, w, h, color);
+        if (pattern === 'kitchen') {
+            if (h > w) {
+                rect(w - 4, 0, 2, h, 'rgba(0,0,0,0.1)');
+                if (f.tags?.includes('stove')) {
+                    circle(cx, h/6, 6, '#2d3436');
+                    circle(cx, h/2, 6, '#2d3436');
+                }
+            } else {
+                rect(0, 4, w, 2, 'rgba(0,0,0,0.1)');
+                if (f.tags?.includes('stove')) {
+                    circle(w/6, cy, 6, '#2d3436');
+                    circle(w/2, cy, 6, '#2d3436');
+                }
+            }
+        } else {
+            if (h > w) rect(0, h/3, w, 2, 'rgba(0,0,0,0.1)');
+            else rect(w/3, 0, 2, h, 'rgba(0,0,0,0.1)');
+        }
+        return;
+    }
+
+    if (pattern === 'toilet') {
+        if (h > w) { rect(w/4, 0, w/2, 10, '#fff'); circle(cx, cy + 5, 10, '#fff'); }
+        else { rect(0, h/4, 10, h/2, '#fff'); circle(cx + 5, cy, 10, '#fff'); }
+        return;
+    }
+
+    if (pattern === 'shower_stall') {
+        rect(0, 0, w, h, 'rgba(129, 236, 236, 0.3)');
+        g.rect(0, 0, w, h).stroke({ width: 2, color: '#fff' });
+        return;
+    }
+
+    if (pattern?.includes('sofa') || f.utility === 'comfort') {
+        rect(0, 0, w, h, color);
+        if (h > w) {
+            rect(w*0.2, 0, w*0.8, h, 'rgba(0,0,0,0.1)');
+        } else {
+            rect(0, h*0.2, w, h*0.8, 'rgba(0,0,0,0.1)');
+        }
+        return;
+    }
+
+    // --- 💻 办公 ---
+    if (pattern?.includes('desk') || pattern?.includes('table')) {
+        rect(0, 0, w, h, color);
+        rect(0, 0, w, h * 0.8, 'rgba(255,255,255,0.1)');
+        rect(w - 14, 4, 10, h - 8, 'rgba(0,0,0,0.15)');
+        return;
+    }
+    if (pattern === 'pc_pixel' || f.tags?.includes('computer')) {
+        rect(w/2 - 6, h - 6, 12, 6, '#37474F');
+        rect(0, 0, w, h - 6, '#263238');
+        rect(2, 2, w - 4, h - 10, '#00BCD4');
+        return;
+    }
+
+    // --- 🛍️ 商业 ---
+    if (pattern === 'vending') {
+        rect(0, 0, w, h, color);
+        rect(2, 2, w-4, 6, 'rgba(255,255,255,0.4)');
+        rect(4, 12, w*0.6, h*0.5, '#81D4FA');
+        rect(4, h-10, w-8, 8, '#263238');
+        rect(w-10, 16, 4, 4, '#FF5252');
+        rect(w-10, 22, 4, 4, '#FFD740');
+        return;
+    }
+
+    if (pattern && pattern.startsWith('shelf')) {
+        rect(0, 0, w, h, '#E0E0E0');
+        const colors = pattern === 'shelf_veg' ? ['#66BB6A', '#9CCC65'] : 
+                       pattern === 'shelf_meat' ? ['#EF5350', '#EC407A'] : 
+                       ['#FFCA28', '#42A5F5', '#AB47BC'];
+        for (let r = 0; r < 3; r++) {
+            rect(0, (h/3)*r + (h/3)-2, w, 2, 'rgba(0,0,0,0.15)');
+            for (let c = 0; c < 4; c++) {
+                rect(1 + c * (w/4), 2 + r * (h/3), w/4 - 2, h/3 - 6, colors[(r+c)%colors.length]);
+            }
+        }
+        return;
+    }
+
+    // --- 🏃 健身 ---
+    if (pattern === 'treadmill') {
+        rect(0, 0, w, h, '#2d3436');
+        rect(4, 4, w - 8, h - 8, '#636e72');
+        if (h > w) {
+            for(let i=4; i<h-4; i+=10) rect(4, i, w-8, 2, '#000000');
+            rect(0, 0, w, 20, '#dfe6e9');
+        } else {
+            for(let i=4; i<w-4; i+=10) rect(i, 4, 2, h-8, '#000000');
+            rect(0, 0, 20, h, '#dfe6e9');
+        }
+        return;
+    }
+    if (pattern === 'weights_rack') {
+        rect(0, 0, w, h, '#2d3436');
+        if (h > w) {
+            rect(0, 20, w, 6, '#b2bec3'); 
+            circle(0, 23, 8, '#000'); 
+            circle(w, 23, 8, '#000');
+        } else {
+            rect(20, 0, 6, h, '#b2bec3');
+            circle(23, 0, 8, '#000');
+            circle(23, h, 8, '#000');
+        }
+        return;
+    }
+    if (pattern === 'yoga_mat') {
+        rect(0, 0, w, h, color);
+        rect(2, 2, w - 4, h - 4, 'rgba(255,255,255,0.2)');
+        return;
+    }
+
+    // --- 🎨 艺术与技能 ---
+    if (pattern === 'easel') {
+        if (h > w) {
+            g.moveTo(cx, 0).lineTo(0, h).stroke({width:3, color:'#8b4513'});
+            g.moveTo(cx, 0).lineTo(w, h).stroke({width:3, color:'#8b4513'});
+            g.moveTo(cx, 0).lineTo(cx, h).stroke({width:3, color:'#8b4513'});
+        } else {
+            g.moveTo(0, cy).lineTo(w, 0).stroke({width:3, color:'#8b4513'});
+            g.moveTo(0, cy).lineTo(w, h).stroke({width:3, color:'#8b4513'});
+        }
+        rect(w*0.1, h*0.2, w*0.8, h*0.6, '#fff');
+        circle(cx, cy, 6, color);
+        return;
+    }
+    
+    if (pattern === 'chess_table') {
+        rect(4, 4, w-8, h-8, '#8b4513');
+        rect(0, 0, w, h, '#dcdde1');
+        const cellSize = Math.min(w, h) / 4;
+        for(let r=0; r<4; r++) {
+            for(let c=0; c<4; c++) {
+                if ((r+c)%2===1) rect(c*cellSize + (w-cellSize*4)/2, r*cellSize + (h-cellSize*4)/2, cellSize, cellSize, '#2f3542');
+            }
+        }
+        return;
+    }
+
+    // --- 🏥 医疗与科技 ---
+    if (pattern === 'medical_bed') {
+        rect(0, 0, w, h, '#dfe6e9');
+        if (h > w) rect(0, 0, w, 15, '#74b9ff');
+        else rect(0, 0, 15, h, '#74b9ff');
+        
+        const cs = 12;
+        rect(cx - cs/2, cy - 4, cs, 8, '#ff7675');
+        rect(cx - 4, cy - cs/2, 8, cs, '#ff7675');
+        return;
+    }
+    if (pattern === 'scanner') {
+        const minDim = Math.min(w,h);
+        circle(cx, cy, minDim/2, '#b2bec3');
+        circle(cx, cy, minDim/3, '#2d3436');
+        if (h > w) rect(10, cy, w - 20, h/2, '#74b9ff');
+        else rect(cx, 10, w/2, h - 20, '#74b9ff');
+        return;
+    }
+    if (pattern === 'server') {
+        rect(0, 0, w, h, '#1e1e1e');
+        rect(4, 4, w - 8, h - 8, '#2d3436');
+        if (h > w) {
+            for (let i = 5; i < h - 5; i += 8) rect(w - 8, i, 4, 4, '#00b894');
+        } else {
+            for (let i = 5; i < w - 5; i += 8) rect(i, h - 8, 4, 4, '#00b894');
+        }
+        return;
+    }
+
+    // --- 🚦 交通标识 ---
+    if (pattern === 'zebra') {
+        rect(0, 0, w, h, '#FFFFFF');
+        return;
+    }
+    
+    // --- 🎨 艺术品 ---
+    if (pattern === 'painting') {
+         rect(0, 0, w, h, '#dcdde1');
+         rect(2, 2, w - 4, h - 4, '#f5f6fa');
+         circle(cx, cy, w/4, color);
+         return;
+    }
+    
+    if (pattern === 'statue') {
+        rect(4, h - 10, w - 8, 10, '#7f8fa6');
+        rect(w/2 - 6, 10, 12, h - 20, '#f5f6fa');
+        circle(w/2, 10, 8, '#f5f6fa');
+        return;
+    }
+    
+    if (pattern === 'display_case') {
+         rect(0, 0, w, h, 'rgba(129, 236, 236, 0.3)');
+         g.rect(0, 0, w, h).stroke({width:1, color:'rgba(255,255,255,0.5)'});
+         rect(0, h-10, w, 10, '#2f3640');
+         rect(w/2-4, h/2+5, 8, 8, color);
+         return;
+    }
+
+    // 默认兜底
+    rect(0, 0, w, h, color);
+    rect(0, 0, w, 4, 'rgba(255,255,255,0.2)');
+    rect(0, 0, 4, h, 'rgba(255,255,255,0.2)');
+    if (f.label?.includes('书')) rect(4, 4, w-8, 4, '#a29bfe');
 };

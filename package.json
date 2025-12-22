@@ -1,7 +1,7 @@
 {
-    "name": "pixel-life-observer",
+    "name": "simgod-test-pixijs",
     "private": true,
-    "version": "1.0.0",
+    "version": "0.0.0",
     "type": "module",
     "scripts": {
         "dev": "vite",
@@ -9,14 +9,18 @@
         "preview": "vite preview"
     },
     "dependencies": {
-        "react": "^18.3.1",
-        "react-dom": "^18.3.1"
+        "pixi-viewport": "^5.0.2",
+        "pixi.js": "^8.14.3",
+        "react": "^18.2.0",
+        "react-dom": "^18.2.0",
+        "uuid": "^9.0.0"
     },
     "devDependencies": {
-        "@types/react": "^18.3.3",
-        "@types/react-dom": "^18.3.0",
-        "@vitejs/plugin-react": "^4.3.1",
-        "typescript": "^5.5.3",
-        "vite": "^5.4.1"
+        "@types/react": "^18.2.15",
+        "@types/react-dom": "^18.2.7",
+        "@types/uuid": "^9.0.0",
+        "@vitejs/plugin-react": "^4.0.3",
+        "typescript": "^5.0.2",
+        "vite": "^4.4.5"
     }
 }

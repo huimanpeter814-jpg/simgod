@@ -16,30 +16,21 @@ export interface SimState {
     exit(sim: Sim): void;
 }
 
-// === 2. 基础状态 (提供默认行为) ===
+// === 2. 基础状态 ===
 export abstract class BaseState implements SimState {
     abstract actionName: string;
-
     enter(sim: Sim): void {}
-    
-    update(sim: Sim, dt: number): void {
-        this.decayNeeds(sim, dt);
-    }
-
+    update(sim: Sim, dt: number): void { this.decayNeeds(sim, dt); }
     exit(sim: Sim): void {}
-
-    protected decayNeeds(sim: Sim, dt: number, exclude: NeedType[] = []) {
-        sim.decayNeeds(dt, exclude);
-    }
+    protected decayNeeds(sim: Sim, dt: number, exclude: NeedType[] = []) { sim.decayNeeds(dt, exclude); }
 }
-// === 🆕 过渡状态 (Transition) ===
-// 用于处理从行走结束点(Anchor)到实际交互点(InteractPos)的平滑位移
-// 解决“瞬移”和“穿模”问题
+
+// === 过渡状态 (平滑动画) ===
 export class TransitionState extends BaseState {
     actionName = 'transition';
     targetPos: { x: number, y: number };
     nextStateFactory: () => SimState;
-    duration: number = 0.3; // 300ms 过渡时间
+    duration: number = 0.5; // 秒
     elapsed: number = 0;
     startPos: { x: number, y: number } | null = null;
 
@@ -52,22 +43,17 @@ export class TransitionState extends BaseState {
     enter(sim: Sim) {
         this.startPos = { ...sim.pos };
         this.elapsed = 0;
-        sim.path = []; // 清空寻路路径，防止干扰
+        sim.path = []; 
+        sim.target = null; // 停止寻路系统，完全由动画接管
     }
 
     update(sim: Sim, dt: number) {
-        // 简单 Lerp 动画
-        // 注意：dt 是 tick 增量，这里我们需要将其视为时间流逝
-        // 假设 dt=1 约为 1/60 秒 (16ms)
-        const deltaSec = 0.016 * dt * GameStore.time.speed; 
+        // 将 dt (帧数) 转换为秒，粗略估计 60fps
+        const dtSeconds = dt / 60; 
+        this.elapsed += dtSeconds;
+        const t = Math.min(1, this.elapsed / this.duration);
         
-        // 为了视觉平滑，忽略游戏加速带来的过快跳跃，使用固定步长
-        // 或者直接累加进度
-        this.elapsed += 0.05 * dt; // 调节这个系数控制速度
-
-        const t = Math.min(1, this.elapsed / (this.duration * 60)); // duration以秒为单位，这里简单估算
-        
-        // Ease-out
+        // Ease Out Cubic
         const easeT = 1 - Math.pow(1 - t, 3);
 
         if (this.startPos) {
@@ -76,15 +62,13 @@ export class TransitionState extends BaseState {
         }
 
         if (t >= 1) {
-            // 动画结束，吸附坐标并进入下一状态
             sim.pos = { ...this.targetPos };
             sim.changeState(this.nextStateFactory());
         }
     }
 }
-// === 3. 具体状态实现 ===
 
-// --- 空闲状态 (Idle) ---
+// --- 空闲状态 ---
 export class IdleState extends BaseState {
     actionName = SimAction.Idle;
 
@@ -100,19 +84,27 @@ export class IdleState extends BaseState {
         if (sim.decisionTimer > 0) {
             sim.decisionTimer -= dt;
         } else {
-            // 只有非工作状态且空闲时才做决策
-            if (sim.job.id !== 'unemployed' || ![AgeStage.Infant, AgeStage.Toddler].includes(sim.ageStage)) {
-                 DecisionLogic.decideAction(sim);
-                 sim.decisionTimer = 30 + Math.random() * 30;
+            // [修复] 婴幼儿只有在家里时才触发 DecisionLogic 的有限逻辑
+            // 防止婴儿在大街上乱逛
+            if ([AgeStage.Infant, AgeStage.Toddler].includes(sim.ageStage)) {
+                if (sim.isAtHome()) {
+                    // 在家可以玩玩具、睡觉，或者通过 DecisionLogic 触发需求
+                    DecisionLogic.decideAction(sim); 
+                } else {
+                    // 在外面如果没有被护送，就原地等待救援
+                    sim.say("我要回家...", 'bad');
+                    sim.changeState(new WaitingState());
+                }
             } else {
-                 DecisionLogic.decideAction(sim);
-                 sim.decisionTimer = 30 + Math.random() * 30;
+                DecisionLogic.decideAction(sim);
             }
+            sim.decisionTimer = 60 + Math.random() * 60;
         }
     }
 }
 
-// 原地等待状态
+
+// --- 等待状态 (重要：用于婴儿等待接送) ---
 export class WaitingState extends BaseState {
     actionName = SimAction.Waiting;
     
@@ -121,16 +113,14 @@ export class WaitingState extends BaseState {
         sim.path = [];
         sim.say("...", 'sys');
     }
-
-    update(sim: Sim, dt: number) {
-        super.update(sim, dt);
-    }
+    // 纯等待，不消耗精力，不乱跑
 }
 
 // --- 移动状态 ---
 export class MovingState extends BaseState {
     actionName: string;
-    moveTimeout: number = 0;
+    stuckTimer: number = 0;
+    lastPos: { x: number, y: number } = { x: 0, y: 0 };
 
     constructor(actionName: string = SimAction.Moving) {
         super();
@@ -139,19 +129,41 @@ export class MovingState extends BaseState {
 
     enter(sim: Sim) {
         super.enter(sim);
-        this.moveTimeout = 0;
+        this.stuckTimer = 0;
+        this.lastPos = { x: sim.pos.x, y: sim.pos.y };
     }
 
     update(sim: Sim, dt: number) {
         super.update(sim, dt);
-        this.moveTimeout += dt;
         
-        if (this.moveTimeout > 1500 && sim.target) {
-            sim.pos = { ...sim.target };
-            this.handleArrival(sim);
+        // 1. 卡死检测
+        const distMoved = (sim.pos.x - this.lastPos.x)**2 + (sim.pos.y - this.lastPos.y)**2;
+        if (distMoved < 0.01) {
+            this.stuckTimer += dt;
+        } else {
+            this.stuckTimer = 0;
+            this.lastPos = { x: sim.pos.x, y: sim.pos.y };
+        }
+
+        if (this.stuckTimer > 300) { // 约5秒不动
+            if (sim.target) {
+                // 如果离目标很近 (50px)，瞬移
+                const distToTarget = (sim.target.x - sim.pos.x)**2 + (sim.target.y - sim.pos.y)**2;
+                if (distToTarget < 2500) {
+                    sim.pos = { ...sim.target };
+                    this.handleArrival(sim);
+                } else {
+                    // 离得远还卡住，说明寻路失败
+                    sim.say("过不去...", 'sys');
+                    sim.changeState(new IdleState());
+                }
+            } else {
+                sim.changeState(new IdleState());
+            }
             return;
         }
 
+        // 2. 执行移动
         const arrived = sim.moveTowardsTarget(dt);
         if (arrived) {
             this.handleArrival(sim);
@@ -159,9 +171,7 @@ export class MovingState extends BaseState {
     }
 
     private handleArrival(sim: Sim) {
-        if (this.actionName === SimAction.MovingHome) {
-            sim.changeState(new IdleState());
-        } else if (sim.interactionTarget) { // [修复] 这里之前错误地使用了 this.interactionTarget
+        if (sim.interactionTarget) { 
             sim.startInteraction(); 
         } else {
             sim.changeState(new IdleState());
@@ -173,13 +183,17 @@ export class MovingState extends BaseState {
 export class CommutingState extends BaseState {
     actionName = SimAction.Commuting;
     phase: 'to_plot' | 'to_station' = 'to_station';
+    // 🆕 修复：添加卡死检测变量
+    stuckTimer: number = 0;
+    lastPos: { x: number, y: number } = { x: 0, y: 0 };
     enter(sim: Sim) {
         sim.path = [];
+        sim.commuteTimer = 0;
+        this.stuckTimer = 0;
+        this.lastPos = { x: sim.pos.x, y: sim.pos.y };
         const station = this.findWorkstation(sim);
         if (station) {
             this.phase = 'to_station';
-            // 🆕 使用 getInteractionPos 确保走到椅子前而不是穿模
-            // 但这里为了简单，暂时保留原逻辑，或者你可以在 findWorkstation 返回后调用 getInteractionPos
             sim.target = { x: station.x + station.w/2, y: station.y + station.h + 5 };
             sim.interactionTarget = { ...station, utility: 'work' };
             sim.say("去工位...", 'act');
@@ -194,18 +208,28 @@ export class CommutingState extends BaseState {
     }
     update(sim: Sim, dt: number) {
         super.update(sim, dt);
-        const arrived = sim.moveTowardsTarget(dt);
-        if (arrived) {
-            if (this.phase === 'to_plot') {
-                sim.lastPunchInTime = GameStore.time.hour + GameStore.time.minute / 60;
-                if (sim.lastPunchInTime > sim.job.startHour + 0.1) { sim.say("迟到了！😱", 'bad'); sim.workPerformance -= 5; } else { sim.say("打卡成功", 'sys'); }
-                const station = this.findWorkstation(sim);
-                if (station) {
-                    this.phase = 'to_station';
-                    sim.target = { x: station.x + station.w/2, y: station.y + station.h + 5 };
-                    sim.interactionTarget = { ...station, utility: 'work' };
-                } else { sim.say("没位置了...", 'bad'); sim.changeState(new WorkingState()); }
-            } else { sim.changeState(new WorkingState()); }
+        if (sim.moveTowardsTarget(dt)) {
+            sim.changeState(new WorkingState());
+        }
+    }
+    private handleArrival(sim: Sim) {
+        if (this.phase === 'to_plot') {
+            sim.lastPunchInTime = GameStore.time.hour + GameStore.time.minute / 60;
+            if (sim.lastPunchInTime > sim.job.startHour + 0.1) { sim.say("迟到了！😱", 'bad'); sim.workPerformance -= 5; } else { sim.say("打卡成功", 'sys'); }
+            
+            const station = this.findWorkstation(sim);
+            if (station) {
+                this.phase = 'to_station';
+                sim.target = { x: station.x + station.w/2, y: station.y + station.h + 5 };
+                sim.interactionTarget = { ...station, utility: 'work' };
+                this.stuckTimer = 0;
+                sim.path = [];
+            } else { 
+                sim.say("没位置了...", 'bad'); 
+                sim.changeState(new WorkingState()); 
+            }
+        } else { 
+            sim.changeState(new WorkingState()); 
         }
     }
     private findWorkstation(sim: Sim): Furniture | null {
@@ -252,8 +276,28 @@ export class CommutingState extends BaseState {
 export class WorkingState extends BaseState {
     actionName = SimAction.Working;
     subStateTimer = 0;
+    
     update(sim: Sim, dt: number) {
         super.update(sim, dt);
+
+        // 🆕 [需求] 工作期间特殊需求处理
+        // 1. 如果饥饿或如厕太低，自动恢复到安全线 (60-80)
+        if (sim.needs[NeedType.Hunger] < 20) {
+            sim.needs[NeedType.Hunger] = 60 + Math.random() * 20;
+            sim.say("偷偷吃点东西...", 'act');
+        }
+        if (sim.needs[NeedType.Bladder] < 20) {
+            sim.needs[NeedType.Bladder] = 80;
+            sim.say("去趟洗手间", 'act');
+        }
+
+        // 2. 如果精力耗尽，提前结束工作并获得对应工资
+        if (sim.needs[NeedType.Energy] <= 0) {
+            sim.say("实在太困了... 撑不住了", 'bad');
+            CareerLogic.leaveWorkEarly(sim);
+            return;
+        }
+
         const rate = 0.005 * dt;
         switch (sim.job.companyType) {
             case JobType.Internet: sim.skills.logic += rate; break;
@@ -297,17 +341,16 @@ export class WorkingState extends BaseState {
 // --- 上学通勤 ---
 export class CommutingSchoolState extends BaseState {
     actionName = SimAction.CommutingSchool;
+    enter(sim: Sim) {
+        // 目标已经在 SchoolLogic 中设置好了
+        if (!sim.target) sim.changeState(new IdleState());
+    }
     update(sim: Sim, dt: number) {
         super.update(sim, dt);
-        sim.commuteTimer += dt;
-        if (sim.commuteTimer > 1200 && sim.target) {
-            sim.pos = { ...sim.target };
+        if (sim.moveTowardsTarget(dt)) {
             sim.changeState(new SchoolingState());
-            sim.say("上课中...", 'act');
-            return;
+            sim.say("开始上课", 'act');
         }
-        const arrived = sim.moveTowardsTarget(dt);
-        if (arrived) { sim.changeState(new SchoolingState()); sim.say("乖乖上学", 'act'); }
     }
 }
 
@@ -332,12 +375,14 @@ export class SchoolingState extends BaseState {
             if ([AgeStage.Infant, AgeStage.Toddler].includes(sim.ageStage)) schoolType = 'kindergarten';
             const plot = GameStore.worldLayout.find(p => p.templateId === schoolType);
             if (plot) {
+                const w = plot.width || 300;
+                const h = plot.height || 300;
                 if (Math.random() > 0.5) {
-                    const area = { minX: plot.x, maxX: plot.x + (plot.width||300), minY: plot.y, maxY: plot.y + (plot.height||300) };
+                    const area = { minX: plot.x, maxX: plot.x + w, minY: plot.y, maxY: plot.y + h };
                     SchoolLogic.findObjectInArea(sim, 'play', area); 
                 } else {
-                    const tx = plot.x + 20 + Math.random() * ((plot.width||300) - 40);
-                    const ty = plot.y + 20 + Math.random() * ((plot.height||300) - 40);
+                    const tx = plot.x + 20 + Math.random() * (w - 40);
+                    const ty = plot.y + 20 + Math.random() * (h - 40);
                     sim.target = { x: tx, y: ty };
                 }
             }
@@ -376,7 +421,6 @@ export class PlayingHomeState extends BaseState {
     update(sim: Sim, dt: number) { super.update(sim, dt); sim.actionTimer -= dt; if (sim.actionTimer <= 0) sim.finishAction(); }
 }
 
-// 🆕 修正：跟随状态仅允许在家里跟随
 export class FollowingState extends BaseState {
     actionName = SimAction.Following;
     update(sim: Sim, dt: number) {
@@ -391,119 +435,221 @@ export class FollowingState extends BaseState {
     }
 }
 
-// 🆕 保姆工作状态
 export class NannyState extends BaseState {
     actionName = SimAction.NannyWork;
     wanderTimer = 0;
+    workTimer = 0; // 记录工作时长
+    
     update(sim: Sim, dt: number) {
+        this.workTimer += dt;
+
+        // 家长回来检测
         const parentsHome = GameStore.sims.some(s => s.homeId === sim.homeId && !s.isTemporary && s.ageStage !== AgeStage.Infant && s.ageStage !== AgeStage.Toddler && s.isAtHome());
-        if (parentsHome) { GameStore.addLog(sim, "主人回来啦，我下班了。", "normal"); GameStore.removeSim(sim.id); return; }
+        
+        if (parentsHome && this.workTimer > 3000) {  
+            sim.say("家长回来了，那我下班啦 👋", 'sys');
+            GameStore.removeSim(sim.id); 
+            return; 
+        }
+
+        // 🆕 [需求] 保姆必须照顾婴幼儿 (优先扫描)
         const babies = GameStore.sims.filter(s => s.homeId === sim.homeId && (s.ageStage === AgeStage.Infant || s.ageStage === AgeStage.Toddler));
+        
         if (babies.length > 0) {
-            const needyBaby = babies.sort((a, b) => a.mood - b.mood)[0];
-            if (needyBaby.mood < 60) {
+            // 找到最需要照顾的宝宝
+            const needyBaby = babies.sort((a, b) => {
+                const scoreA = (100 - a.needs[NeedType.Hunger]) + (100 - a.needs[NeedType.Social]) + (100 - a.mood);
+                const scoreB = (100 - b.needs[NeedType.Hunger]) + (100 - b.needs[NeedType.Social]) + (100 - b.mood);
+                return scoreB - scoreA;
+            })[0];
+
+            // 只要宝宝有不满，就去照顾，不一定要等到红色警戒
+            if (needyBaby.needs[NeedType.Hunger] < 80) {
+                sim.changeState(new FeedBabyState(needyBaby.id));
+                return;
+            }
+            
+            if (needyBaby.mood < 70) {
                 const dist = Math.sqrt(Math.pow(sim.pos.x - needyBaby.pos.x, 2) + Math.pow(sim.pos.y - needyBaby.pos.y, 2));
-                if (dist > 40) { sim.target = { x: needyBaby.pos.x + 10, y: needyBaby.pos.y }; sim.moveTowardsTarget(dt); } 
-                else { if (Math.random() < 0.01) { sim.say("乖宝宝不哭~", "family"); needyBaby.needs[NeedType.Fun] += 10; needyBaby.needs[NeedType.Social] += 10; needyBaby.needs[NeedType.Hunger] += 10; } }
+                if (dist > 40) { 
+                    sim.target = { x: needyBaby.pos.x + 10, y: needyBaby.pos.y }; 
+                    sim.moveTowardsTarget(dt); 
+                } 
+                else { 
+                    if (Math.random() < 0.05) { 
+                        sim.say("乖宝宝~", "family"); 
+                        needyBaby.needs[NeedType.Fun] += 10; 
+                        needyBaby.needs[NeedType.Social] += 10; 
+                    } 
+                }
                 return;
             }
         }
+
+        // 如果没事做，随机闲逛
         this.wanderTimer -= dt;
         if (this.wanderTimer <= 0) {
-            this.wanderTimer = 200 + Math.random() * 200;
+            this.wanderTimer = 300 + Math.random() * 300;
             const home = sim.getHomeLocation();
             if (home) {
-                const homeUnit = GameStore.housingUnits.find(u => u.id === sim.homeId);
-                if (homeUnit) { const tx = homeUnit.x + Math.random() * homeUnit.area.w; const ty = homeUnit.y + Math.random() * homeUnit.area.h; sim.target = { x: tx, y: ty }; }
+                const tx = home.x + (Math.random() - 0.5) * 100;
+                const ty = home.y + (Math.random() - 0.5) * 100;
+                sim.target = { x: tx, y: ty };
             }
         }
         if (sim.target) sim.moveTowardsTarget(dt);
     }
 }
 
-// 家长去接孩子 (PickingUp)
+// 3. 家长去接人 (PickingUp)
 export class PickingUpState extends BaseState {
     actionName = SimAction.PickingUp;
+    
+    enter(sim: Sim) {
+        const child = GameStore.sims.find(s => s.id === sim.carryingSimId);
+        if (child) {
+            sim.target = { x: child.pos.x, y: child.pos.y };
+            sim.say(`去接 ${child.name}`, 'family');
+        } else {
+            sim.changeState(new IdleState());
+        }
+    }
+
     update(sim: Sim, dt: number) {
         super.update(sim, dt);
-        if (sim.carryingSimId) {
-            const child = GameStore.sims.find(s => s.id === sim.carryingSimId);
-            if (child) {
-                sim.target = { x: child.pos.x, y: child.pos.y };
-                if (sim.path.length > 0) {
-                    const lastNode = sim.path[sim.path.length - 1];
-                    const distToPathEnd = Math.sqrt(Math.pow(lastNode.x - child.pos.x, 2) + Math.pow(lastNode.y - child.pos.y, 2));
-                    if (distToPathEnd > 40) sim.path = []; 
-                }
+        
+        const child = GameStore.sims.find(s => s.id === sim.carryingSimId);
+        if (!child) { sim.changeState(new IdleState()); return; }
+
+        // 持续更新目标 (以防孩子乱跑，虽然孩子应该是 Waiting)
+        const distSq = (sim.pos.x - child.pos.x)**2 + (sim.pos.y - child.pos.y)**2;
+        
+        // 如果距离远，继续走
+        if (distSq > 900) { // 30px
+            sim.target = { x: child.pos.x, y: child.pos.y };
+            sim.moveTowardsTarget(dt);
+        } else {
+            // 到达孩子身边，开始护送
+            sim.say("抓到你了！", 'family');
+            
+            // 设置双向绑定
+            child.carriedBySimId = sim.id;
+            child.changeState(new BeingEscortedState());
+            
+            // 切换到护送状态，目标设为学校或家
+            // 这里的目标需要在切换前确定：
+            // 如果是在家里接的 -> 去学校
+            // 如果是在学校接的 -> 去家
+            
+            const kindergarten = GameStore.worldLayout.find(p => p.templateId === 'kindergarten');
+            const inSchool = kindergarten && child.pos.x >= kindergarten.x && child.pos.x <= kindergarten.x + (kindergarten.width||300) && child.pos.y >= kindergarten.y && child.pos.y <= kindergarten.y + (kindergarten.height||300);
+            
+            let targetPos = { x: 0, y: 0 };
+            
+            if (inSchool) {
+                // 回家
+                const home = sim.getHomeLocation();
+                if (home) targetPos = home;
+            } else if (kindergarten) {
+                // 去学校
+                targetPos = { x: kindergarten.x + (kindergarten.width||300)/2, y: kindergarten.y + (kindergarten.height||300)/2 };
             }
-        }
-        const arrived = sim.moveTowardsTarget(dt);
-        if (sim.carryingSimId) {
-            const child = GameStore.sims.find(s => s.id === sim.carryingSimId);
-            if (child) {
-                const dist = Math.sqrt(Math.pow(sim.pos.x - child.pos.x, 2) + Math.pow(sim.pos.y - child.pos.y, 2));
-                if (dist < 20) { 
-                    const kindergarten = GameStore.worldLayout.find(p => p.templateId === 'kindergarten');
-                    const isAtSchool = kindergarten && child.pos.x >= kindergarten.x && child.pos.x <= kindergarten.x + (kindergarten.width||300) && child.pos.y >= kindergarten.y && child.pos.y <= kindergarten.y + (kindergarten.height||300);
-                    if (isAtSchool) {
-                        const home = sim.getHomeLocation(); 
-                        if (home) { sim.target = { x: home.x, y: home.y }; sim.path = []; child.carriedBySimId = sim.id; child.changeState(new BeingEscortedState()); sim.changeState(new EscortingState()); sim.say("走，回家咯！", 'family'); }
-                    } else if (kindergarten) {
-                        const tx = kindergarten.x + (kindergarten.width || 300)/2; const ty = kindergarten.y + (kindergarten.height || 300)/2;
-                        sim.target = { x: tx, y: ty }; sim.path = []; child.carriedBySimId = sim.id; child.changeState(new BeingEscortedState()); sim.changeState(new EscortingState()); sim.say("抓到你了，上学去！", 'family');
-                    } else { sim.carryingSimId = null; sim.changeState(new IdleState()); }
-                }
-            }
+
+            sim.changeState(new EscortingState(targetPos));
         }
     }
 }
 
-// 家长护送/抱着孩子 (Escorting)
+// 4. 家长护送中 (Escorting)
 export class EscortingState extends BaseState {
     actionName = SimAction.Escorting;
-    enter(sim: Sim) { sim.path = []; }
+    dest: { x: number, y: number };
+
+    constructor(dest: { x: number, y: number }) {
+        super();
+        this.dest = dest;
+    }
+
+    enter(sim: Sim) {
+        sim.target = this.dest;
+        sim.path = [];
+    }
+
     update(sim: Sim, dt: number) {
         super.update(sim, dt);
+        
         const arrived = sim.moveTowardsTarget(dt);
+        
+        // 同步孩子位置 (核心逻辑：孩子被抱着走)
         if (sim.carryingSimId) {
             const child = GameStore.sims.find(s => s.id === sim.carryingSimId);
-            if (child) { child.pos.x = sim.pos.x + 6; child.pos.y = sim.pos.y - 12; child.target = null; child.path = []; }
+            if (child) {
+                // 孩子位置稍微偏移一点，模拟抱着
+                child.pos.x = sim.pos.x + 5;
+                child.pos.y = sim.pos.y - 5;
+                // 强制更新视图位置，防止闪烁
+                child.prevPos = { ...child.pos };
+            }
         }
+
         if (arrived) {
+            // 到达目的地，放下孩子
             if (sim.carryingSimId) {
                 const child = GameStore.sims.find(s => s.id === sim.carryingSimId);
                 if (child) {
                     child.carriedBySimId = null;
+                    
+                    // 判断是到学校还是到家
                     const kindergarten = GameStore.worldLayout.find(p => p.templateId === 'kindergarten');
-                    const isAtSchool = kindergarten && sim.pos.x >= kindergarten.x && sim.pos.x <= kindergarten.x + (kindergarten.width||300) && sim.pos.y >= kindergarten.y && sim.pos.y <= kindergarten.y + (kindergarten.height||300);
-                    if (isAtSchool) { child.changeState(new SchoolingState()); child.say("拜拜~ 👋", 'family'); } 
-                    else { child.changeState(new IdleState()); child.say("到家啦！", 'family'); }
+                    const inSchool = kindergarten && sim.pos.x >= kindergarten.x && sim.pos.x <= kindergarten.x + (kindergarten.width||300);
+                    
+                    if (inSchool) {
+                        child.changeState(new SchoolingState());
+                        child.say("到学校啦 👋", 'family');
+                        sim.say("乖乖听话", 'family');
+                    } else {
+                        child.changeState(new IdleState()); // 到家了
+                        child.say("回家啦！", 'family');
+                    }
                 }
                 sim.carryingSimId = null;
             }
-            sim.say("任务完成", 'family');
-            if (sim.isTemporary) { GameStore.removeSim(sim.id); } else { sim.changeState(new IdleState()); }
+            
+            // 任务完成，家长回归空闲
+            if (sim.job.id === 'nanny') {
+                sim.changeState(new NannyState());
+            } else {
+                sim.changeState(new IdleState());
+            }
         }
     }
 }
 
-// 孩子被抱着 (BeingEscorted)
+// 5. 孩子被护送 (BeingEscorted)
 export class BeingEscortedState extends BaseState {
     actionName = SimAction.BeingEscorted;
+    
+    enter(sim: Sim) {
+        sim.target = null;
+        sim.path = [];
+        sim.say("抱抱~", 'love');
+    }
+
     update(sim: Sim, dt: number) {
-        sim.needs[NeedType.Social] += 0.01 * dt;
-        sim.needs[NeedType.Fun] += 0.01 * dt;
+        // 啥也不干，位置由 Parent 更新
+        // 只有当 Parent 丢失时才恢复
         if (sim.carriedBySimId) {
-            const carrier = GameStore.sims.find(s => s.id === sim.carriedBySimId);
-            if (!carrier || (carrier.action !== SimAction.Escorting && carrier.action !== SimAction.PickingUp)) {
+            const parent = GameStore.sims.find(s => s.id === sim.carriedBySimId);
+            if (!parent || (parent.action !== SimAction.Escorting && parent.action !== SimAction.PickingUp)) {
                 sim.carriedBySimId = null;
                 sim.changeState(new IdleState());
             }
-        } else { sim.changeState(new IdleState()); }
+        } else {
+            sim.changeState(new IdleState());
+        }
     }
 }
 
-// 🆕 喂食婴儿状态
 export class FeedBabyState extends BaseState {
     actionName = SimAction.FeedBaby;
     targetBabyId: string;
@@ -525,36 +671,19 @@ export class FeedBabyState extends BaseState {
 
     update(sim: Sim, dt: number) {
         const baby = GameStore.sims.find(s => s.id === this.targetBabyId);
-        if (!baby) {
-            sim.changeState(new IdleState());
-            return;
-        }
+        if (!baby) { sim.changeState(new IdleState()); return; }
 
-        // 如果还没到，继续移动
         if (sim.target) {
-            const arrived = sim.moveTowardsTarget(dt);
-            if (!arrived) return;
-        }
-
-        // 到达后喂食
-        if (baby.needs[NeedType.Hunger] < 100) {
-            // 恢复系数
-            const restoreAmount = 0.5 * dt; 
-            baby.needs[NeedType.Hunger] += restoreAmount;
-            
-            // 家长消耗
-            sim.needs[NeedType.Energy] -= 0.05 * dt;
-
-            if (Math.random() < 0.05) {
-                sim.say("乖乖吃饭...", 'family');
-                baby.say("🍼...", 'normal');
+            if (sim.moveTowardsTarget(dt)) {
+                // 到达后喂食
+                baby.needs.hunger = 100;
+                sim.say("吃饱了吗？", 'family');
+                baby.say("饱了~", 'love');
+                baby.changeState(new IdleState()); // 婴儿不再等待
+                
+                if (sim.job.id === 'nanny') sim.changeState(new NannyState());
+                else sim.changeState(new IdleState());
             }
-        } else {
-            // 喂饱了
-            sim.say("吃饱饱啦！", 'family');
-            baby.say("😊", 'love');
-            sim.changeState(new IdleState());
-            baby.changeState(new IdleState());
         }
     }
 }

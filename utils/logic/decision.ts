@@ -77,6 +77,24 @@ export const DecisionLogic = {
                 // 🚫 禁止非员工使用办公设施
                 return true;
             }
+
+            // [规则 D] 养老院/私人社区门禁 (Elder Care / Residential Access Control)
+            // [新增] 解决养老院被蹭睡问题
+            const isElderHome = plot.templateId.includes('elder') || plot.customType === 'residential' || plot.customType === 'elder_care';
+            if (isElderHome) {
+                // 1. 允许该地块的住户 (归属于该地皮下的 housingUnit)
+                const unit = GameStore.housingUnits.find(u => u.id === sim.homeId && u.id.startsWith(plot.id));
+                if (unit) return false;
+                
+                // 2. 允许工作人员 (护工等)
+                if (sim.workplaceId === plot.id) return false;
+
+                // 3. 允许特殊状态 (如保姆)
+                if (sim.job.id === 'nanny' && sim.isTemporary && sim.homeId && sim.homeId.startsWith(plot.id)) return false;
+
+                // 🚫 禁止闲杂人等进入 (防止路人进去睡觉)
+                return true;
+            }
         }
 
         // --- 3. 私宅归属权检查 (Private Property) ---
@@ -149,7 +167,7 @@ export const DecisionLogic = {
 
     // 🆕 婴儿饥饿广播系统
     triggerHungerBroadcast(sim: Sim) {
-        if (!sim.homeId) return;
+        if (!sim.homeId) return false;
 
         // 寻找潜在看护人：在同一房子里，且处于清醒/空闲/居家状态的成年人/老人
         const potentialCaregivers = GameStore.sims.filter(s => 
@@ -192,7 +210,7 @@ export const DecisionLogic = {
             // 状态权重：闲着的人优先
             if (candidate.action === SimAction.Idle || candidate.action === SimAction.Wandering) score += 30;
             if (candidate.action === SimAction.Working) score -= 50; // 在家办公也不容易
-            if (candidate.action === SimAction.Sleeping) score -= 20; // 睡觉会被吵醒，但权重较低，毕竟要喂奶
+            if (candidate.action === SimAction.Sleeping) score -= 20; // 睡觉会被吵醒，但权重甚至高于睡觉
 
             return { sim: candidate, score };
         });
@@ -224,16 +242,45 @@ export const DecisionLogic = {
     },
 
     decideAction(sim: Sim) {
+        // 🚨 1. 婴儿/幼儿特殊保护逻辑
+        if ([AgeStage.Infant, AgeStage.Toddler].includes(sim.ageStage)) {
+            // 如果不在家，什么都不做，等待 PickingUpState (由父母/学校逻辑触发)
+            if (!sim.isAtHome()) {
+                if (sim.action !== SimAction.Waiting && sim.action !== SimAction.BeingEscorted) {
+                    sim.say("我要回家...", 'bad');
+                    sim.changeState(new WaitingState());
+                }
+                return; 
+            }
+
+            // 如果在家，只能做有限的事 (不能自己做饭，不能出门)
+            if (sim.needs[NeedType.Hunger] < 50) {
+                // 尝试呼叫喂食
+                const success = this.triggerHungerBroadcast(sim);
+                if (!success) sim.say("饿饿...🍼", 'bad');
+                return;
+            }
+
+            if (sim.needs[NeedType.Energy] < 30) {
+                // 自己找床睡 (仅限家里的婴儿床)
+                this.findObject(sim, 'nap_crib'); 
+                return;
+            }
+
+            if (sim.needs[NeedType.Fun] < 50) {
+                // 玩积木 (家里)
+                this.findObject(sim, 'play_blocks');
+                return;
+            }
+
+            // 没事做就闲逛一下或者发呆
+            if (Math.random() < 0.5) sim.startWandering();
+            return;
+        }
+
         // 1. 生存危机检查 (优先级最高)
         if (sim.health < 60 || sim.hasBuff('sick')) { DecisionLogic.findObject(sim, 'healing'); return; }
 
-        // 🆕 [修复] 婴儿饥饿处理：不再自己找物体，而是广播
-        if ([AgeStage.Infant, AgeStage.Toddler].includes(sim.ageStage) && sim.needs[NeedType.Hunger] < 50) {
-            const success = DecisionLogic.triggerHungerBroadcast(sim);
-            if (success) return; 
-            // 如果没人理，尝试自己吃（如果家里有现成食物），或者继续哭
-            // 这里为了防止死循环，如果没人理，允许 fallback 到原来的逻辑 (findObject 只能找到地上的奶瓶)
-        }
 
         let critical = [
             { id: NeedType.Energy, val: sim.needs[NeedType.Energy] },
@@ -461,6 +508,7 @@ export const DecisionLogic = {
     },
 
     findObject(sim: Sim, type: string) {
+        const isBaby = [AgeStage.Infant, AgeStage.Toddler].includes(sim.ageStage);
         let utility = type;
         // 映射表：将抽象需求/技能映射到具体的家具 utility
         const simpleMap: Record<string, string> = {
@@ -546,12 +594,42 @@ export const DecisionLogic = {
             candidates = GameStore.furnitureIndex.get(utility) || [];
         }
 
+        // === [新增] 优先回家解决生理需求逻辑 ===
+        const basicNeeds = [NeedType.Hunger, NeedType.Energy, NeedType.Bladder, NeedType.Hygiene];
+        let forceHome = false;
+
+        if (sim.homeId && basicNeeds.includes(type as NeedType)) {
+            // 检查当前是否在工作/上学地点
+            const currentPlot = GameStore.worldLayout.find(p => 
+                sim.pos.x >= p.x && sim.pos.x <= p.x + (p.width||300) &&
+                sim.pos.y >= p.y && sim.pos.y <= p.y + (p.height||300)
+            );
+            
+            const isAtWork = sim.workplaceId && currentPlot && currentPlot.id === sim.workplaceId;
+            const isAtSchool = currentPlot && ['school','kindergarten'].some(t => currentPlot.templateId.includes(t));
+            
+            // 如果不在工作也不在上学，且不是婴儿(婴儿由保姆照顾)，则优先回家
+            if (!isAtWork && !isAtSchool) {
+                forceHome = true;
+            }
+        }
+
         // 过滤不可用对象
         if (candidates.length) {
             candidates = candidates.filter((f: Furniture)=> {
                  // 1. 权限检查 (私宅/学校/夜店)
                  if (DecisionLogic.isRestricted(sim, f)) return false;
                  
+                 // [新增] 归家优先逻辑
+                 if (forceHome) {
+                     // 如果家里有这类设施，就只允许回家用
+                     // 如果家里没有 (比如家里没买灶台)，则允许用外面的
+                     const hasHomeItem = candidates.some(c => c.homeId === sim.homeId);
+                     if (hasHomeItem) {
+                         if (f.homeId !== sim.homeId) return false;
+                     }
+                 }
+
                  // 2. 经济检查
                  if (type === NeedType.Hunger && sim.money < 20) {
                      // 没钱只能用免费的 (冰箱/公共饮水)
@@ -608,7 +686,7 @@ export const DecisionLogic = {
                 }
             }
         }
-        sim.startWandering();
+        if (!isBaby)sim.startWandering();
     },
 
     findHuman(sim: Sim) {

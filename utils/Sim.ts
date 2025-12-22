@@ -18,12 +18,11 @@ import { InteractionSystem } from './logic/InteractionSystem';
 import { 
     SimState, IdleState, WorkingState, MovingState, CommutingState, InteractionState, 
     FollowingState, CommutingSchoolState, SchoolingState, PlayingHomeState, 
-    PickingUpState, EscortingState, BeingEscortedState, NannyState 
+    PickingUpState, EscortingState, BeingEscortedState, NannyState, FeedBabyState 
 } from './logic/SimStates';
 
 export class Sim {
     // === 数据属性 (Data Properties) ===
-    // ⚠️ 使用 ! 断言，因为这些属性在 SimInitializer.initialize 中被确实赋值了
     id!: string;
     familyId!: string;
     homeId: string | null = null;
@@ -130,12 +129,12 @@ export class Sim {
     carryingSimId: string | null = null; 
     carriedBySimId: string | null = null; 
 
+    // [修改] 标记是否为临时角色/NPC
     isTemporary: boolean = false; 
+    // [新增] 明确标记 NPC 身份 (UI层应据此过滤，不显示在居民列表)
+    isNPC: boolean = false;
 
     constructor(config: SimInitConfig = {}) {
-        // 使用工厂初始化数据
-        // 因为 SimInitializer.initialize 实际上填充了上述所有带 ! 的属性
-        // TypeScript 无法跨函数检测，所以需要 ! 断言
         SimInitializer.initialize(this, config);
         
         // 构造后逻辑
@@ -152,7 +151,9 @@ export class Sim {
     // === 核心生命周期 (Lifecycle) ===
 
     update(dt: number, minuteChanged: boolean) {
-        this.prevPos = { ...this.pos };
+        if (!this.prevPos) this.prevPos = { x: this.pos.x, y: this.pos.y };
+        this.prevPos.x = this.pos.x;
+        this.prevPos.y = this.pos.y;
         
         // 每分钟更新逻辑 (低频)
         if (minuteChanged) {
@@ -200,22 +201,25 @@ export class Sim {
             if (this.needs[NeedType.Fun] < 20 && !this.hasBuff('bored')) { this.addBuff(BUFFS.bored); this.say("无聊透顶...", 'bad'); }
             if (this.needs[NeedType.Hygiene] < 20 && !this.hasBuff('smelly')) { this.addBuff(BUFFS.smelly); this.say("身上有味了...", 'bad'); }
             
-            // 保姆生成逻辑
+            // [保姆生成逻辑优化]
             if (this.homeId && [AgeStage.Infant, AgeStage.Toddler].includes(this.ageStage) && this.isAtHome() && !this.carriedBySimId && this.action !== SimAction.Waiting && this.action !== SimAction.BeingEscorted) {
                 const parentsHome = GameStore.sims.some(s => (s.id === this.motherId || s.id === this.fatherId) && s.homeId === this.homeId && s.isAtHome());
                 if (!parentsHome) { 
-                    const hasNanny = GameStore.sims.some(s => s.homeId === this.homeId && s.isTemporary); 
+                    // 检查是否已经有保姆/NPC在服务
+                    const hasNanny = GameStore.sims.some(s => s.homeId === this.homeId && (s.isTemporary || s.isNPC)); 
                     if (!hasNanny) GameStore.spawnNanny(this.homeId, 'home_care'); 
                 }
             }
         }
 
-        // 高频逻辑 (状态机)
+        // [修改] 移除婴幼儿自动跟随逻辑，响应用户需求 "婴幼儿取消跟随状态"
+        /*
         if ([AgeStage.Infant, AgeStage.Toddler].includes(this.ageStage)) { 
             if (this.action === SimAction.Idle && !this.target && !this.interactionTarget) { 
                 if (this.isAtHome()) { this.changeState(new FollowingState()); } 
             } 
         }
+        */
         
         this.state.update(this, dt);
         
@@ -223,7 +227,6 @@ export class Sim {
     }
 
     // === 委托方法 (Delegate Methods) ===
-    // 将行为委托给对应的 Logic 模块，保持 API 不变
 
     // 移动
     moveTowardsTarget(dt: number): boolean { 
@@ -280,7 +283,7 @@ export class Sim {
 
     say(text: string, type: string = 'normal') { 
         this.bubble.text = text; 
-        this.bubble.timer = 150; 
+        this.bubble.timer = 300; 
         this.bubble.type = type; 
     }
 
@@ -341,9 +344,16 @@ export class Sim {
             case SimAction.Following: this.state = new FollowingState(); break;
             case SimAction.PlayingHome: this.state = new PlayingHomeState(); break;
             case SimAction.PickingUp: this.state = new PickingUpState(); break;
-            case SimAction.Escorting: this.state = new EscortingState(); break;
+            case SimAction.Escorting: 
+                // [修复] EscortingState 需要 dest 参数。使用 sim.target 或当前位置作为兜底。
+                this.state = new EscortingState(this.target || { x: this.pos.x, y: this.pos.y }); 
+                break;
             case SimAction.BeingEscorted: this.state = new BeingEscortedState(); break;
             case SimAction.NannyWork: this.state = new NannyState(); break; 
+            case SimAction.FeedBaby:
+                // [修复] FeedBabyState 需要 id 参数。恢复时传入空字符串，update() 会自动检测并处理（如果找不到目标会切回 Idle）
+                this.state = new FeedBabyState(""); 
+                break;
             case SimAction.Moving:
             case SimAction.Wandering:
             case SimAction.MovingHome:

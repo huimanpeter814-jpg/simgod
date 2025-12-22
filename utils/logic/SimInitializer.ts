@@ -2,6 +2,13 @@ import { Sim } from '../Sim';
 import { SimData, AgeStage, NeedType, SimAppearance } from '../../types';
 import { CONFIG, AGE_CONFIG, SURNAMES, GIVEN_NAMES, ASSET_CONFIG, MBTI_TYPES, ZODIACS, LIFE_GOALS, JOBS, BASE_DECAY } from '../../constants';
 
+// 🆕 辅助函数：根据年龄获取资源池
+export const getAssetPool = (stage: AgeStage) => {
+    if (stage === AgeStage.Infant) return ASSET_CONFIG.infant;
+    if (stage === AgeStage.Toddler || stage === AgeStage.Child) return ASSET_CONFIG.child;
+    return ASSET_CONFIG.adult; // Teen, Adult, Elder
+};
+
 // [修改] 扩充配置接口，支持属性传入（用于遗传和自定义捏人）
 export interface SimInitConfig {
     x?: number;
@@ -60,7 +67,7 @@ export const SimInitializer = {
         };
         sim.prevPos = { ...sim.pos }; 
         
-        sim.speed = (5.0 + Math.random() * 2.0) * 2.0;
+        sim.speed = (1.5 + Math.random() * 1.0) * 1.5;
 
         sim.gender = config.gender || (Math.random() > 0.5 ? 'M' : 'F');
 
@@ -114,21 +121,39 @@ export const SimInitializer = {
             sim.name = sim.surname + GIVEN_NAMES[Math.floor(Math.random() * GIVEN_NAMES.length)];
         }
         
-        // 外观 (支持自定义颜色配置)
-        sim.skinColor = config.skinColor || CONFIG.COLORS.skin[Math.floor(Math.random() * CONFIG.COLORS.skin.length)];
-        sim.hairColor = config.hairColor || CONFIG.COLORS.hair[Math.floor(Math.random() * CONFIG.COLORS.hair.length)];
-        sim.clothesColor = config.clothesColor || CONFIG.COLORS.clothes[Math.floor(Math.random() * CONFIG.COLORS.clothes.length)];
-        sim.pantsColor = config.pantsColor || CONFIG.COLORS.pants[Math.floor(Math.random() * CONFIG.COLORS.pants.length)];
-
-        // 外观样式 (Assets)
+        // 外观 (支持自定义颜色配置) - 仍然保留颜色字段以备不时之需（例如 UI 文字颜色）
+        sim.skinColor = config.skinColor || '#ffffff';
+        // 🆕 修改：发色初始化逻辑
+        if (config.hairColor) {
+            sim.hairColor = config.hairColor;
+        } else {
+            if (sim.ageStage === AgeStage.Elder) {
+                // 老年人强制灰白发系
+                const greyTones = ['#dcdde1', '#b2bec3', '#7f8fa6', '#f5f6fa', '#dfe4ea'];
+                sim.hairColor = greyTones[Math.floor(Math.random() * greyTones.length)];
+            } else {
+                // 其他年龄段随机
+                sim.hairColor = CONFIG.COLORS.hair[Math.floor(Math.random() * CONFIG.COLORS.hair.length)];
+            }
+        }
+        // [修改] 衣服/裤子颜色默认使用白色 #ffffff (即不染色)
+        sim.clothesColor = config.clothesColor || '#ffffff';
+        sim.pantsColor = config.pantsColor || '#ffffff';
+        
+        // 🆕 核心修改：初始化三层图片资源
         if (config.appearance) {
             sim.appearance = config.appearance;
         } else {
+            // 根据年龄获取对应的资源池
+            const pool = getAssetPool(sim.ageStage);
+            
+            const pick = (list: string[]) => list.length > 0 ? list[Math.floor(Math.random() * list.length)] : '';
+            
             sim.appearance = {
-                face: ASSET_CONFIG.face.length > 0 ? ASSET_CONFIG.face[Math.floor(Math.random() * ASSET_CONFIG.face.length)] : '',
-                hair: ASSET_CONFIG.hair.length > 0 ? ASSET_CONFIG.hair[Math.floor(Math.random() * ASSET_CONFIG.hair.length)] : '',
-                clothes: ASSET_CONFIG.clothes.length > 0 ? ASSET_CONFIG.clothes[Math.floor(Math.random() * ASSET_CONFIG.clothes.length)] : '',
-                pants: ASSET_CONFIG.pants.length > 0 ? ASSET_CONFIG.pants[Math.floor(Math.random() * ASSET_CONFIG.pants.length)] : '',
+                body: pick(pool.bodies),
+                outfit: pick(pool.outfits),
+                hair: pick(pool.hairs),
+                face: '', clothes: '', pants: ''
             };
         }
 

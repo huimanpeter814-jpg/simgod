@@ -1,10 +1,6 @@
 import { GameStore } from './GameStore';
-import { PALETTES, HOLIDAYS, TIME_CONFIG } from '../constants';
+import { TIME_CONFIG, HOLIDAYS, PALETTES } from '../constants';
 import { NarrativeSystem } from './logic/narrative';
-import { EconomyLogic } from './logic/EconomyLogic';
-import { LifeCycleLogic } from './logic/LifeCycleLogic';
-import { CareerLogic } from './logic/career';
-import { SchoolLogic } from './logic/school';
 
 export function getActivePalette() {
     const h = GameStore.time.hour;
@@ -16,23 +12,46 @@ export function getActivePalette() {
     return PALETTES.lateNight;
 }
 
-export function updateTime() {
-    if (GameStore.editor.mode !== 'none') return;
-    if (GameStore.time.speed === 0) return;
+let tickCount = 0;
 
-    GameStore.timeAccumulator += GameStore.time.speed;
+export const gameLoopStep = (dt: number = 1) => {
+    // 限制 dt 最大值，防止从后台切换回来时 dt 过大导致位移崩溃
+    const safeDt = Math.min(dt, 5);
+
+    if (GameStore.time.speed <= 0) return;
+
+    // A. 移动逻辑 (保持流畅)
+    // 注意：这里我们让移动速度也稍微适配一下慢节奏，防止人走得太快像瞬移
+    // 如果觉得人走得太慢，可以把 * 1.0 改成 * 1.5 或更高
+    GameStore.sims.forEach(s => {
+        // [修复] 记录移动前的位置，用于 NaN 恢复
+        const backupX = s.pos.x;
+        const backupY = s.pos.y;
+
+        s.update(safeDt * GameStore.time.speed, false);
+
+        // [修复] 如果更新后坐标变成了 NaN，回滚到更新前
+        if (isNaN(s.pos.x) || isNaN(s.pos.y)) {
+            // console.warn(`[GameLoop] Recovered ${s.name} from NaN void.`);
+            s.pos.x = isNaN(backupX) ? 100 : backupX; // 如果连备份都是坏的，才重置到 100
+            s.pos.y = isNaN(backupY) ? 100 : backupY;
+        }
+    });
+
+    // B. 时间流速控制
+    GameStore.timeAccumulator += dt * GameStore.time.speed;
     
-    // 使用配置中的 Ticks (120)，确保和 action duration 的比例正确
-    const ticksPerMin = TIME_CONFIG.TICKS_PER_MINUTE;
+    // [核心调整]
+    // 60 = 1秒1分钟 (太快)
+    // 120 = 2秒1分钟 (标准)
+    // 180 = 3秒1分钟 (悠闲) <-- 我们用这个
+    const ticksPerMin = 180; 
 
-    // 使用 while 循环处理高倍速下的时间累积 (防止丢帧)
-    // 并且使用减法而不是重置为0，以保持时间精确同步
     while (GameStore.timeAccumulator >= ticksPerMin) {
         GameStore.timeAccumulator -= ticksPerMin;
         GameStore.time.minute++;
-        
-        // 触发低频逻辑 (每游戏分钟一次)
-        // 传入 0 作为 dt，因为移动已经在 gameLoopStep 的高频更新中处理了
+
+        // 低频逻辑
         GameStore.sims.forEach(s => s.update(0, true));
 
         if (GameStore.time.minute >= 60) {
@@ -42,11 +61,9 @@ export function updateTime() {
 
             if (GameStore.time.hour >= 24) {
                 GameStore.time.hour = 0;
-                
-                NarrativeSystem.handleDailyDiaries(GameStore.sims, GameStore.time, (msg) => GameStore.addLog(null, msg, 'sys', true));
-
                 GameStore.time.totalDays++;
                 GameStore.time.month++;
+                
                 if (GameStore.time.month > 12) {
                     GameStore.time.month = 1;
                     GameStore.time.year++;
@@ -54,37 +71,28 @@ export function updateTime() {
                 }
 
                 const currentMonth = GameStore.time.month;
-                let dailyLog = `进入 ${GameStore.time.year} 年 ${currentMonth} 月`;
                 const holiday = HOLIDAYS[currentMonth];
                 if (holiday) {
-                    dailyLog += ` | 🎉 本月是: ${holiday.name}`;
-                    GameStore.addLog(null, `🎉 ${holiday.name} 到了！本月大家都有些特别的想法...`, 'sys');
+                    GameStore.addLog(null, `🎉 本月是: ${holiday.name}`, 'sys');
                 }
-                GameStore.addLog(null, dailyLog, 'sys');
-
+                
                 GameStore.sims.forEach(s => {
-                    s.dailyExpense = 0; s.dailyIncome = 0; s.payRent(); s.calculateDailyBudget(); s.applyMonthlyEffects(currentMonth, holiday);
+                    s.dailyExpense = 0; 
+                    s.dailyIncome = 0; 
+                    s.payRent(); 
+                    s.calculateDailyBudget(); 
+                    s.applyMonthlyEffects(currentMonth, holiday);
                 });
                 
+                NarrativeSystem.handleDailyDiaries(GameStore.sims, GameStore.time, (msg: string) => GameStore.addLog(null, msg, 'sys', true));
                 GameStore.saveGame(1);
             }
         }
-        // 如果速度非常快，这里可能一帧处理多分钟，需要通知 UI 更新
-        GameStore.notify();
     }
-}
 
-export function gameLoopStep() {
-    try {
-        updateTime();
-        if (GameStore.editor.mode === 'none') {
-            // 高频逻辑：处理移动、动画和动作持续时间衰减
-            // 这里的 dt 直接使用 speed，确保动作消耗的时间和时钟流逝的时间是 1:1 的关系
-            GameStore.sims.forEach(s => s.update(GameStore.time.speed, false));
-        }
-    } catch (error) {
-        console.error("Game Loop Error:", error);
-        GameStore.time.speed = 0; 
+    // C. UI 通知
+    tickCount++;
+    if (tickCount % 10 === 0) {
         GameStore.notify();
     }
-}
+};
