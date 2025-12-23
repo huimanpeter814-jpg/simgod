@@ -112,7 +112,7 @@ export const INTERACTIONS: Record<string, InteractionHandler> = {
             }
 
             // 🟢 [修改后] 如果真的允许无目的闲逛，这里不要扣钱，只加少量乐趣
-            sim.say("Window Shopping...", 'act');
+            sim.say("只是看看~", 'act');
             sim.needs[NeedType.Fun] += 5;
         }
     },
