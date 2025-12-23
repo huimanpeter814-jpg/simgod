@@ -1,11 +1,31 @@
 
 import type { Sim } from '../Sim'; 
 import { GameStore } from '../simulation';
-import { CONFIG } from '../../constants'; 
-import { Furniture, SimAction, NeedType, AgeStage, JobType } from '../../types';
+import { CONFIG, BUFFS} from '../../constants'; 
+import { Furniture, SimAction, NeedType, AgeStage, JobType, SimIntent, QueuedAction, Relationship} from '../../types';
 import { getInteractionPos } from '../simulationHelpers';
-import { FeedBabyState, WaitingState, IdleState, BatheBabyState } from './SimStates';
+// 🟢 [修改] 引入所有需要的状态类，移除 require
+import { FeedBabyState, WaitingState, BatheBabyState, SchoolingState, WorkingState } from './SimStates';
 import { PLOTS } from '../../data/plots'; 
+
+// 辅助：判断是否是工作日/工作时间
+const isWorkTime = (sim: Sim): boolean => {
+    if (!sim.job || sim.job.id === 'unemployed') return false;
+    const hour = GameStore.time.hour;
+    // 简单的周一到周五判断 (假设 totalDays % 7 < 5)
+    const isWeekend = (GameStore.time.totalDays % 7) >= 5; 
+    if (isWeekend) return false;
+    return hour >= sim.job.startHour && hour < sim.job.endHour;
+};
+
+// 辅助：判断是否是学校时间
+const isSchoolTime = (sim: Sim): boolean => {
+    if (![AgeStage.Child, AgeStage.Teen].includes(sim.ageStage)) return false;
+    const hour = GameStore.time.hour;
+    const isWeekend = (GameStore.time.totalDays % 7) >= 5;
+    if (isWeekend) return false;
+    return hour >= 8 && hour < 16;
+};
 
 export const DecisionLogic = {
     /**
@@ -89,6 +109,642 @@ export const DecisionLogic = {
 
         return false;
     },
+    /**
+     * 🧠 [核心大脑] 意图评估系统 (透明化版)
+     * 深度集成：MBTI、性格特质、情绪状态、职业野心、生理周期、环境时间
+     * 🟢 新增：决策归因 (Reasoning) - 让 AI 能够解释 "为什么要这样做"
+     */
+    evaluateBestIntent(sim: Sim): SimIntent {
+        // --- 0. 感知上下文 (Perception Context) ---
+        // 修改 scores 定义，加入 reason 字段
+        const scores: { intent: SimIntent, score: number, meta?: any, reason: string }[] = [];
+        
+        const hour = GameStore.time.hour;
+        const day = GameStore.time.totalDays % 7; // 0-6 (假设0是周日)
+        const isWeekend = day === 0 || day === 6; 
+        const isNight = hour >= 22 || hour < 6;
+        const isSleeping = sim.action === SimAction.Sleeping;
+
+        // MBTI 解析
+        const isExtravert = sim.mbti.startsWith('E'); 
+        const isIntrovert = sim.mbti.startsWith('I'); 
+        const isIntuitive = sim.mbti[1] === 'N';      
+        // const isFeeling = sim.mbti[2] === 'F';
+        // const isThinking = sim.mbti[2] === 'T';
+        const isJudging = sim.mbti[3] === 'J';        
+        // const isPerceiving = sim.mbti[3] === 'P';     
+
+        // --- 1. 生存本能 (Survival) - 绝对最高优先级 ---
+        // 每一个判断都附带具体的 reason 字符串
+        if (sim.needs[NeedType.Hunger] < 15) {
+            scores.push({ intent: SimIntent.SURVIVE, score: 500, reason: "⚠️ 极度饥饿 (Hunger < 15)" });
+        }
+        if (sim.needs[NeedType.Energy] < 10) {
+            scores.push({ intent: SimIntent.SURVIVE, score: 600, reason: "⚠️ 极度疲劳 (Energy < 10)" });
+        }
+        if (sim.health < 50) {
+            scores.push({ intent: SimIntent.SURVIVE, score: 800, reason: "🚑 健康危急 (Health < 50)" });
+        }
+        if (sim.needs[NeedType.Bladder] < 15) {
+            scores.push({ intent: SimIntent.FULFILL_NEED, score: 550, meta: NeedType.Bladder, reason: "🚽 膀胱要炸了 (Bladder < 15)" });
+        }
+        
+        // 如果有生存危机，立即返回最高分项，并记录原因
+        if (scores.length > 0) {
+            scores.sort((a, b) => b.score - a.score);
+            const emergency = scores[0];
+            // 如果已经在睡觉且还是困，保持睡觉意图 (特殊处理)
+            if (isSleeping && sim.needs[NeedType.Energy] < 90 && emergency.intent === SimIntent.SURVIVE && sim.needs[NeedType.Energy] < 10) {
+                 sim.lastDecisionReason = "💤 实在太困了，继续补觉";
+                 return SimIntent.SLEEP;
+            }
+            sim.lastDecisionReason = emergency.reason; // 写入决策原因
+            if (emergency.meta) sim['currentNeedType'] = emergency.meta;
+            return emergency.intent; 
+        }
+
+        // --- 2. 刚性日程 (Schedule) ---
+        let scheduleScore = 0;
+        let scheduleReason = "";
+        
+        // 计算勤奋度
+        let diligence = 1.0;
+        let diligenceNotes: string[] = [];
+        if (isJudging) { diligence += 0.2; diligenceNotes.push("J人"); }
+        if (sim.traits.includes('勤奋')) { diligence += 0.2; diligenceNotes.push("勤奋"); }
+        if (sim.traits.includes('懒惰')) { diligence -= 0.3; diligenceNotes.push("懒惰"); }
+        
+        // [特殊场景] 周一综合症
+        const isMondayMorning = day === 1 && hour >= 6 && hour <= 9;
+        if (isMondayMorning && sim.traits.includes('懒惰')) {
+            diligence -= 0.5;
+            diligenceNotes.push("周一厌班");
+        }
+
+        // 上班检查
+        if (isWorkTime(sim) && !sim.hasLeftWorkToday) {
+             if (sim.action === SimAction.Working) {
+                 scheduleScore = 1000;
+                 scheduleReason = "正在工作中...";
+             } else {
+                 scheduleScore = 300 * diligence;
+                 scheduleReason = `工作时间 (勤奋系数: ${diligence.toFixed(1)})`;
+                 if (diligenceNotes.length) scheduleReason += ` [${diligenceNotes.join('/')}]`;
+             }
+             scores.push({ intent: SimIntent.WORK, score: scheduleScore, reason: scheduleReason });
+        }
+        
+        // 上学检查
+        if (isSchoolTime(sim) && [AgeStage.Child, AgeStage.Teen].includes(sim.ageStage)) {
+             if (sim.action === SimAction.Schooling) {
+                 scheduleScore = 1000;
+                 scheduleReason = "正在上课...";
+             } else {
+                 scheduleScore = 350;
+                 scheduleReason = "上学时间 (强制)";
+             }
+             scores.push({ intent: SimIntent.WORK, score: scheduleScore, reason: scheduleReason });
+        }
+
+        // --- 3. 生理需求 (Needs) ---
+        
+        // A. 饥饿
+        if (sim.needs[NeedType.Hunger] < 70) {
+            let hungerScore = (100 - sim.needs[NeedType.Hunger]) * 2.5;
+            let reasonParts = [`饥饿值(${Math.floor(sim.needs[NeedType.Hunger])})`];
+            
+            if (sim.traits.includes('吃货')) { 
+                hungerScore *= 1.5; 
+                reasonParts.push("[吃货]加成"); 
+            }
+            if ([7, 8, 12, 13, 18, 19].includes(hour)) { 
+                hungerScore += 50; 
+                reasonParts.push("饭点"); 
+            }
+            
+            // 穷人忍耐
+            if (sim.money < 50 && sim.needs[NeedType.Hunger] > 40 && !sim.traits.includes('吃货')) {
+                hungerScore *= 0.5;
+                reasonParts.push("没钱忍耐中");
+            }
+
+            scores.push({ intent: SimIntent.SATISFY_HUNGER, score: hungerScore, reason: reasonParts.join(' + ') });
+        }
+
+        // B. 困倦
+        if (sim.needs[NeedType.Energy] < 60 || (isNight && sim.needs[NeedType.Energy] < 90)) {
+            let sleepScore = (100 - sim.needs[NeedType.Energy]) * 2.0;
+            let reasonParts = [`精力值(${Math.floor(sim.needs[NeedType.Energy])})`];
+
+            if (isNight) {
+                sleepScore += 100;
+                reasonParts.push("深夜时刻");
+            }
+            
+            if (sim.traits.includes('夜猫子') && hour >= 23) {
+                sleepScore -= 60;
+                reasonParts.push("[夜猫子]不想睡");
+            }
+            if (sim.traits.includes('夜猫子') && hour >= 4 && hour < 7) {
+                sleepScore += 150;
+                reasonParts.push("[夜猫子]熬不住了");
+            }
+
+            if (isSleeping && sim.needs[NeedType.Energy] < 95) {
+                sleepScore += 500;
+                reasonParts.push("还没睡醒");
+            }
+            
+            scores.push({ intent: SimIntent.SLEEP, score: sleepScore, reason: reasonParts.join(' + ') });
+        }
+
+        // C. 卫生
+        if (sim.needs[NeedType.Bladder] < 60) {
+            scores.push({ 
+                intent: SimIntent.FULFILL_NEED, 
+                score: (100 - sim.needs[NeedType.Bladder]) * 3.5, 
+                meta: NeedType.Bladder, 
+                reason: `内急 (${Math.floor(sim.needs[NeedType.Bladder])})` 
+            });
+        }
+        if (sim.needs[NeedType.Hygiene] < 60) {
+            let hygieneScore = (100 - sim.needs[NeedType.Hygiene]) * 2.0;
+            let reasonStr = `卫生差 (${Math.floor(sim.needs[NeedType.Hygiene])})`;
+            
+            if (sim.traits.includes('洁癖')) {
+                hygieneScore *= 2.0;
+                reasonStr += " + [洁癖]抓狂";
+            }
+            if (sim.traits.includes('邋遢')) {
+                hygieneScore *= 0.5;
+                reasonStr += " + [邋遢]无所谓";
+            }
+            
+            scores.push({ intent: SimIntent.FULFILL_NEED, score: hygieneScore, meta: NeedType.Hygiene, reason: reasonStr });
+        }
+
+        // --- 4. 欲望与自我实现 (Desires) ---
+
+        // A. 社交
+        if (sim.needs[NeedType.Social] < 80) {
+            let socialScore = (100 - sim.needs[NeedType.Social]);
+            let reasonStr = `社交需求 (${Math.floor(sim.needs[NeedType.Social])})`;
+            
+            if (isExtravert) { socialScore *= 1.5; reasonStr += " + [E人]"; }
+            if (isIntrovert) { socialScore *= 0.6; reasonStr += " + [I人]"; }
+            if (sim.traits.includes('独行侠')) { socialScore *= 0.3; reasonStr += " + [独行侠]"; }
+            if (sim.traits.includes('粘人精')) { socialScore *= 1.8; reasonStr += " + [粘人精]"; }
+
+            // [特殊触发器] 寻找爱情
+            const isSingle = !sim.partnerId;
+            const isAdult = [AgeStage.Teen, AgeStage.Adult, AgeStage.MiddleAged].includes(sim.ageStage);
+            const desiresLove = sim.lifeGoal.includes('爱') || sim.traits.includes('浪漫主义') || (Math.random() < 0.05);
+            
+            if (isSingle && isAdult && desiresLove) {
+                scores.push({ 
+                    intent: SimIntent.SOCIALIZE, 
+                    score: socialScore + 60, 
+                    meta: 'seek_romance',
+                    reason: "💘 单身太久，渴望爱情 (特殊)" 
+                });
+            } else {
+                 scores.push({ intent: SimIntent.SOCIALIZE, score: socialScore, reason: reasonStr });
+            }
+
+            // [特殊触发器] 周末派对
+            if (isWeekend && hour >= 20 && [AgeStage.Teen, AgeStage.Adult].includes(sim.ageStage)) {
+                if (sim.traits.includes('派对动物') || (isExtravert && Math.random() > 0.3)) {
+                    scores.push({
+                        intent: SimIntent.SOCIALIZE,
+                        score: 200,
+                        meta: 'party',
+                        reason: "🎉 周末派对时间！"
+                    });
+                }
+            }
+        }
+
+        // B. 娱乐与成长
+        if (sim.needs[NeedType.Fun] < 75) {
+            let funScore = (100 - sim.needs[NeedType.Fun]);
+            let baseReason = `无聊 (${Math.floor(sim.needs[NeedType.Fun])})`;
+
+            if (sim.ageStage === AgeStage.Child) { funScore *= 1.5; baseReason += " + [儿童]贪玩"; }
+            if (sim.traits.includes('爱玩')) { funScore *= 1.3; baseReason += " + [爱玩]"; }
+
+            // [情境分支 1] 摆烂
+            if (sim.mood < 30) {
+                scores.push({
+                    intent: SimIntent.FUN,
+                    score: funScore + 40, 
+                    meta: 'passive_fun',
+                    reason: "☁️ 心情低落，只想躺平 (抑郁模式)"
+                });
+            } 
+            // [情境分支 2] 自我提升
+            else if ((isIntuitive || sim.traits.includes('天才') || sim.traits.includes('书呆子')) && sim.mood > 60) {
+                scores.push({
+                    intent: SimIntent.FUN, 
+                    score: funScore + 30,
+                    meta: 'skill_building',
+                    reason: "💡 灵感涌现，想学点什么 (进取模式)"
+                });
+            }
+            // [情境分支 3] 搞钱
+            else if (sim.traits.includes('工作狂') || sim.lifeGoal.includes('富翁')) {
+                scores.push({
+                    intent: SimIntent.FUN,
+                    score: funScore + 20,
+                    meta: 'side_hustle',
+                    reason: "💰 休息时间也要搞钱 (工作狂)"
+                });
+            }
+            else {
+                scores.push({ intent: SimIntent.FUN, score: funScore, meta: 'any', reason: baseReason });
+            }
+        }
+
+        // --- 5. 排序与决策 ---
+        scores.sort((a, b) => b.score - a.score);
+        
+        const best = scores[0];
+        
+        // 兜底
+        if (!best || best.score < 15) {
+            sim.lastDecisionReason = "🍂 无所事事，随便逛逛";
+            return SimIntent.WANDER;
+        }
+
+        // --- 6. 结果持久化 (关键：保存 Reason) ---
+        // 格式化输出： "饥饿值(30) + [吃货]加成 (得分: 250)"
+        sim.lastDecisionReason = `${best.reason} [Score: ${Math.floor(best.score)}]`;
+
+        if (best.intent === SimIntent.FULFILL_NEED && best.meta) {
+            sim['currentNeedType'] = best.meta as NeedType; 
+        } else if (best.intent === SimIntent.SOCIALIZE) {
+            sim['socialIntentMeta'] = best.meta || 'chat'; 
+        } else if (best.intent === SimIntent.FUN) {
+            sim['funPreference'] = best.meta || 'any';
+        }
+
+        return best.intent;
+    },
+
+    /**
+     * 🗺️ [战术规划器] 将意图分解为行动队列 (Pro版)
+     * 根据意图的元数据 (Meta)，制定个性化的执行方案，并记录策略描述。
+     */
+    planForIntent(sim: Sim, intent: SimIntent): QueuedAction[] {
+        const queue: QueuedAction[] = [];
+        
+        // 辅助：快速添加移动+交互序列
+        const addInteractSequence = (target: Furniture, interactionKey: string, desc: string) => {
+            const { anchor } = getInteractionPos(target);
+            queue.push({
+                type: 'WALK',
+                targetPos: anchor,
+                targetId: target.id,
+                desc: `走向: ${desc}`
+            });
+            queue.push({
+                type: 'INTERACT',
+                targetId: target.id,
+                interactionKey: interactionKey,
+                desc: `正在: ${desc}`
+            });
+        };
+
+        switch (intent) {
+            // === 1. 生存与生理需求 ===
+            case SimIntent.SURVIVE:
+            case SimIntent.SATISFY_HUNGER:
+            case SimIntent.FULFILL_NEED:
+            case SimIntent.SLEEP:
+                // 确定具体需求类型
+                let needType = NeedType.Hunger;
+                if (intent === SimIntent.SATISFY_HUNGER) needType = NeedType.Hunger;
+                else if (intent === SimIntent.SLEEP) needType = NeedType.Energy;
+                else if (intent === SimIntent.SURVIVE) {
+                    const needs = [NeedType.Energy, NeedType.Hunger, NeedType.Bladder, NeedType.Hygiene];
+                    needType = needs.sort((a, b) => sim.needs[a] - sim.needs[b])[0];
+                } else if (sim['currentNeedType']) {
+                    needType = sim['currentNeedType'] as NeedType;
+                }
+
+                // 查找物品策略 (Tags)
+                let searchTags: string[] = [];
+                let actionVerb = 'use';
+
+                // --- 🟢 [战术分支] 贫富与性格差异 ---
+                const isSnob = sim.traits.includes('势利眼');     // 只要贵的
+                const isFrugal = sim.traits.includes('吝啬鬼') || sim.money < 50; // 只要便宜的
+
+                if (needType === NeedType.Hunger) {
+                    // 1. 优先找剩饭 (TODO: 库存系统)
+                    
+                    // 2. 根据性格决定去哪吃
+                    if (isSnob && sim.money > 200) {
+                        searchTags = ['eat_out', 'restaurant', 'bar']; // 势利眼下馆子
+                        actionVerb = 'eat_out';
+                        sim.currentPlanDescription = "势利眼：非高档餐厅不去 🍷";
+                    } else if (sim.skills.cooking > 20 && sim.hasFreshIngredients) {
+                        searchTags = ['stove', 'cooking']; // 会做饭且有菜
+                        actionVerb = 'cooking';
+                        sim.currentPlanDescription = "大显身手：亲自下厨 🍳";
+                    } else if (isFrugal) {
+                        searchTags = ['fridge', 'vending_machine', 'hunger']; // 吝啬鬼吃冰箱
+                        actionVerb = 'eat';
+                        sim.currentPlanDescription = "省钱模式：吃点便宜的 🥡";
+                    } else {
+                        // 普通人混着搜
+                        searchTags = ['hunger', 'fridge', 'eat_out', 'buy_food'];
+                        actionVerb = 'eat';
+                        sim.currentPlanDescription = "寻找最近的食物来源";
+                    }
+                } else if (needType === NeedType.Energy) {
+                    if (isSnob) {
+                        searchTags = ['bed', 'energy']; 
+                        sim.currentPlanDescription = "回卧室休息 (只睡好床)";
+                    } else {
+                        searchTags = ['energy', 'bed', 'nap_crib', 'sofa', 'bench']; // 累了长椅也能睡
+                        sim.currentPlanDescription = "找地方补觉";
+                    }
+                    actionVerb = 'sleep';
+                } else if (needType === NeedType.Bladder) {
+                    searchTags = ['bladder', 'toilet'];
+                    actionVerb = 'use_toilet';
+                    sim.currentPlanDescription = "寻找卫生间";
+                } else if (needType === NeedType.Hygiene) {
+                    searchTags = ['hygiene', 'shower', 'bathtub'];
+                    actionVerb = 'shower';
+                    sim.currentPlanDescription = "去洗香香 🛁";
+                }
+
+                // 执行查找
+                const targetObj = this.findBestFurniture(sim, searchTags);
+                
+                if (targetObj) {
+                    // 动态动词修正
+                    if (needType === NeedType.Hunger && (targetObj.utility === 'cooking' || targetObj.label.includes('灶'))) actionVerb = 'cooking';
+                    else if (needType === NeedType.Hunger && targetObj.utility === 'eat_out') actionVerb = 'eat_out';
+
+                    addInteractSequence(targetObj, actionVerb, `${needType} @ ${targetObj.label}`);
+                } else {
+                    // 兜底逻辑
+                    if (needType === NeedType.Energy) {
+                         queue.push({ type: 'WAIT', duration: 5000, desc: '原地打盹' });
+                         sim.say("困死了...💤", 'bad');
+                         sim.currentPlanDescription = "无处可去，原地打盹";
+                    } else {
+                        sim.say(`找不到东西解决 ${needType}`, 'bad');
+                        queue.push({ type: 'WAIT', duration: 2000 });
+                        sim.currentPlanDescription = `找不到资源: ${needType}`;
+                    }
+                }
+                break;
+
+            // === 2. 工作与上学 (保持逻辑，略微增强寻路描述) ===
+            case SimIntent.WORK:
+                sim.currentPlanDescription = "履行社会责任";
+                if ([AgeStage.Child, AgeStage.Teen].includes(sim.ageStage)) {
+                    // 上学
+                    const schoolPlot = GameStore.worldLayout.find(p => ['school', 'elementary_school', 'high_school'].some(t => (p.customType||'').includes(t)) || p.templateId.includes('school'));
+                    if (schoolPlot) {
+                         const enterX = schoolPlot.x + (schoolPlot.width||300)/2;
+                         const enterY = schoolPlot.y + (schoolPlot.height||300)/2;
+                         queue.push({ type: 'WALK', targetPos: { x: enterX, y: enterY }, desc: '去学校' });
+                         queue.push({ type: 'INTERACT', interactionKey: 'school_attend', desc: '上课' });
+                         sim.currentPlanDescription = "去学校上课 🏫";
+                    }
+                } else if (sim.workplaceId) {
+                    // 上班
+                    const workPlot = GameStore.worldLayout.find(p => p.id === sim.workplaceId);
+                    if (workPlot) {
+                        queue.push({ type: 'WALK', targetPos: { x: workPlot.x + 100, y: workPlot.y + 100 }, desc: '去上班' });
+                         queue.push({ type: 'INTERACT', interactionKey: 'work_attend', desc: '工作' });
+                         sim.currentPlanDescription = "去公司搬砖 💼";
+                    }
+                }
+                break;
+
+            // === 3. 社交 (Social) - 🟢 核心修改 ===
+            case SimIntent.SOCIALIZE:
+                // 读取社交意图元数据
+                const socialType = sim['socialIntentMeta'] || 'chat'; // 'seek_romance', 'party', 'chat'
+
+                // 候选人全集
+                let candidates = GameStore.sims.filter(s => 
+                    s.id !== sim.id && 
+                    !s.isTemporary && 
+                    !['sleeping', 'working', 'schooling', 'commuting'].includes(s.action as string)
+                );
+
+                // --- 🟢 [战术分支] 寻找真爱 (Seek Romance) ---
+                if (socialType === 'seek_romance') {
+                    sim.currentPlanDescription = "雷达扫描：寻找单身异性 💕";
+                    candidates = candidates.filter(target => {
+                        // 1. 性别匹配
+                        let match = true;
+                        if (sim.orientation === 'Hetero') match = target.gender !== sim.gender;
+                        else if (sim.orientation === 'Homo') match = target.gender === sim.gender;
+                        // 2. 年龄匹配 (差不过15岁，且成年)
+                        const ageDiff = Math.abs(target.age - sim.age);
+                        const isAdult = target.ageStage >= AgeStage.Teen;
+                        // 3. 非亲属
+                        const notFamily = target.familyId !== sim.familyId;
+                        // 4. 单身
+                        const isSingle = !target.partnerId;
+                        
+                        return match && ageDiff < 15 && isAdult && notFamily && isSingle;
+                    });
+                    
+                    if (candidates.length > 0) {
+                         // 优先找好看的
+                         candidates.sort((a, b) => (b.appearanceScore || 50) - (a.appearanceScore || 50));
+                         
+                         const target = candidates[0];
+                         // 使用 flirt 动作
+                         queue.push({ type: 'WALK', targetId: target.id, targetPos: target.pos, desc: `被 ${target.name} 吸引` });
+                         queue.push({ type: 'INTERACT', targetId: target.id, interactionKey: 'flirt', desc: '搭讪' }); 
+                         return queue;
+                    } else {
+                        // 找不到对象，只好普通社交
+                        sim.say("周围没有心动的人...", 'sys');
+                        sim.currentPlanDescription = "没找到真爱，随便聊聊";
+                    }
+                }
+
+                // --- 🟢 [战术分支] 派对狂欢 (Party) ---
+                if (socialType === 'party') {
+                     sim.currentPlanDescription = "寻找热闹的人群 🎉";
+                    // 暂时简化为：找任何 E 人或者关系好的人
+                } else {
+                     sim.currentPlanDescription = "找个熟人聊聊";
+                }
+
+                // --- 通用社交逻辑 (Chat) ---
+                if (candidates.length > 0) {
+                    candidates.sort((a, b) => {
+                        const relA = sim.relationships[a.id]?.friendship || 0;
+                        const relB = sim.relationships[b.id]?.friendship || 0;
+                        
+                        // 内向者只找熟人，外向者找新人
+                        let scoreA = relA;
+                        let scoreB = relB;
+                        if (sim.mbti.startsWith('I')) { scoreA += (relA > 20 ? 50 : 0); }
+                        else { scoreA += (relA < 10 ? 20 : 0); } // E人喜欢认识新朋友
+
+                        const distA = Math.hypot(a.pos.x - sim.pos.x, a.pos.y - sim.pos.y);
+                        const distB = Math.hypot(b.pos.x - sim.pos.x, b.pos.y - sim.pos.y);
+                        return (scoreB - distB*0.1) - (scoreA - distA*0.1);
+                    });
+
+                    const targetSim = candidates[0];
+                    queue.push({ type: 'WALK', targetId: targetSim.id, targetPos: targetSim.pos, desc: `去找 ${targetSim.name}` });
+                    queue.push({ type: 'INTERACT', targetId: targetSim.id, interactionKey: 'chat', desc: '聊天' });
+                } else {
+                    sim.say("找不到人...", 'sys');
+                    sim.currentPlanDescription = "举目无亲，孤独...";
+                    queue.push({ type: 'WAIT', duration: 2000 });
+                }
+                break;
+
+            // === 4. 娱乐与自我实现 (Fun) - 🟢 核心修改 ===
+            case SimIntent.FUN:
+                // 读取娱乐偏好
+                const funPref = sim['funPreference'] || 'any'; // 'passive_fun', 'skill_building', 'side_hustle', 'any'
+                
+                let funTypes: string[] = [];
+                let funVerb = 'play';
+
+                // --- 🟢 [战术分支] 偏好映射 ---
+                if (funPref === 'passive_fun') {
+                    // 抑郁/懒惰/累：只找被动娱乐
+                    funTypes = ['tv', 'sofa', 'bed', 'bench', 'cinema_2d', 'bookshelf']; 
+                    sim.currentPlanDescription = "只想躺平 (低能量模式) ☁️";
+                } else if (funPref === 'skill_building') {
+                    // 进取：找技能设施
+                    funTypes = ['art', 'chess', 'piano', 'gym', 'computer', 'bookshelf'];
+                    sim.currentPlanDescription = "自我提升：练点技能 📈";
+                } else if (funPref === 'side_hustle') {
+                    // 搞钱：找电脑/工作台
+                    funTypes = ['computer', 'work_station', 'painting'];
+                    sim.currentPlanDescription = "搞点副业赚外快 💰";
+                } else {
+                    // 通用：什么都玩
+                    funTypes = ['fun', 'tv', 'computer', 'game', 'bookshelf', 'art', 'gym'];
+                    if (sim.needs[NeedType.Energy] < 50) funTypes.push('comfort');
+                    sim.currentPlanDescription = "寻找好玩的东西 🎮";
+                }
+                
+                // 执行查找
+                const funObj = this.findBestFurniture(sim, funTypes);
+                
+                if (funObj) {
+                    // 映射动作动词
+                    if (funObj.utility === 'art' || funObj.label.includes('画')) funVerb = 'paint';
+                    else if (funObj.utility === 'gym' || funObj.label.includes('跑')) funVerb = 'run';
+                    else if (funObj.label.includes('琴')) funVerb = 'play_instrument';
+                    else if (funObj.label.includes('棋')) funVerb = 'play_chess';
+                    else if (funObj.label.includes('书')) funVerb = 'read_book';
+                    else if (funObj.label.includes('电脑')) funVerb = funPref === 'side_hustle' ? 'work_coding' : 'play_game'; // 电脑区别用途
+
+                    addInteractSequence(funObj, funVerb, '娱乐');
+                } else {
+                    queue.push({ type: 'WALK', desc: '散步' }); // 没东西玩就散步
+                    sim.currentPlanDescription = "没东西玩，散散步";
+                }
+                break;
+
+            case SimIntent.WANDER:
+            default:
+                queue.push({ type: 'WALK', desc: '闲逛' });
+                sim.currentPlanDescription = "四处游荡";
+                break;
+        }
+
+        return queue;
+    },
+
+    // 辅助：执行队列中的下一个动作
+    executeNextAction(sim: Sim) {
+        const action = sim.popNextAction();
+        if (!action) {
+            sim.currentIntent = SimIntent.IDLE;
+            return;
+        }
+
+        // console.log(`${sim.name} 执行: ${action.type} - ${action.desc}`);
+
+        switch (action.type) {
+            case 'WALK':
+                if (action.targetId) {
+                    // 如果是追人/找物体，再次确认目标是否存在/位置更新
+                    // 对于人：
+                    const targetSim = GameStore.sims.find(s => s.id === action.targetId);
+                    if (targetSim) {
+                        sim.target = { ...targetSim.pos }; // 更新为最新位置
+                        sim.interactionTarget = { type: 'human', ref: targetSim }; // 预设交互目标
+                    } 
+                    // 对于物体：
+                    else {
+                        const targetObj = GameStore.furniture.find(f => f.id === action.targetId);
+                        if (targetObj) {
+                            const { anchor } = getInteractionPos(targetObj);
+                            sim.target = anchor;
+                            sim.interactionTarget = targetObj;
+                        } else if (action.targetPos) {
+                            sim.target = action.targetPos;
+                        }
+                    }
+                } else if (action.targetPos) {
+                    sim.target = action.targetPos;
+                } else {
+                    // 没目标 = 闲逛
+                    sim.startWandering();
+                    return;
+                }
+                
+                sim.startMovingToInteraction();
+                break;
+
+            case 'INTERACT':
+                if (action.targetId && action.interactionKey) {
+                    // 区分是对人还是对物
+                    const targetSim = GameStore.sims.find(s => s.id === action.targetId);
+                    const targetObj = GameStore.furniture.find(f => f.id === action.targetId);
+                    
+                    if (targetSim) {
+                        // 面对面
+                        sim.target = null; // 停止移动
+                        // 简单处理：如果是 kiss/chat 等，触发 interactionRegistry
+                        // 注意：这里需要你的 InteractionSystem 支持 'chat' 等 key
+                        // 如果暂不支持，回退到原来的 SocialLogic 调用
+                        sim.interactionTarget = { type: 'human', ref: targetSim };
+                        sim.startInteraction();
+                    } else if (targetObj) {
+                        sim.target = null;
+                        sim.interactionTarget = targetObj;
+                        
+                        // 特殊 case 处理
+                        if (action.interactionKey === 'work_attend') {
+                            sim.changeState(new WorkingState());
+                        } else if (action.interactionKey === 'school_attend') {
+                            sim.changeState(new SchoolingState());
+                        } else {
+                            sim.startInteraction();
+                        }
+                    }
+                }
+                break;
+            
+            case 'WAIT':
+                sim.changeState(new WaitingState()); // 需确保 WaitingState 会在一段时间后自动 finishAction
+                sim.actionTimer = action.duration || 2000;
+                break;
+        }
+    },
+
 
     isCareerSkill(sim: Sim, skillKey: string): boolean {
         const type = sim.job.companyType;
@@ -233,201 +889,58 @@ export const DecisionLogic = {
 
     // === 🧠 核心决策函数 ===
     decideAction(sim: Sim) {
-        // 1. 婴幼儿特殊逻辑
+        // 1. 婴幼儿特殊保护逻辑 (保持你原有的修复，优先级最高)
         if ([AgeStage.Infant, AgeStage.Toddler].includes(sim.ageStage)) {
-           // [原有逻辑] 检查是否离家出走
-            if (!sim.isAtHome() && sim.homeId) {
-                if (sim.action !== SimAction.Waiting && sim.action !== SimAction.BeingEscorted) {
-                    sim.say("我要回家...", 'bad');
-                    sim.changeState(new WaitingState());
-                }
-                return; 
-            }
+             // 检查紧急需求，如果需要呼救，直接打断所有计划
+             if (sim.needs[NeedType.Hunger] < 40) {
+                 if (this.triggerHungerBroadcast(sim)) { sim.clearPlan(); return; }
+             }
+             if (sim.needs[NeedType.Hygiene] < 40) {
+                 if (this.triggerHygieneBroadcast(sim)) { sim.clearPlan(); return; }
+             }
+             // 防止幼儿离家出走
+             if (!sim.isAtHome() && sim.homeId && sim.action === SimAction.Idle) {
+                 // 简单的自动回家指令
+                 sim.setPlan(SimIntent.SURVIVE, [{
+                     type: 'WALK',
+                     targetPos: sim.getHomeLocation() || {x:0,y:0},
+                     desc: '回家'
+                 }]);
+             }
+        }
 
-            // === [修复 1] 拆解优先级链，防止一个需求卡死其他紧急需求 ===
-            
-            // A. 如厕 (Bladder) - 最紧急，独立检查
-            if (sim.needs[NeedType.Bladder] < 40) {
-                 if (this.findObject(sim, NeedType.Bladder)) return;
-                 // 找不到厕所继续向下执行
-            }
-
-            // B. 卫生 (Hygiene) - 独立检查
-            if (sim.needs[NeedType.Hygiene] < 40) {
-                 // [修改] 改为呼叫大人帮忙，而不是自己去找
-                 if (this.triggerHygieneBroadcast(sim)) return; 
-                 
-                 // 如果没人帮，只能发牢骚
-                 sim.say("臭臭...", 'bad');
-            }
-
-            // C. 饥饿 (Hunger) - 独立检查
-            if (sim.needs[NeedType.Hunger] < 50) {
-                // 尝试呼叫父母
-                if (this.triggerHungerBroadcast(sim)) return; 
-                // 如果没人喂，代码会继续向下运行，防止卡死
-                sim.say("饿饿...🍼", 'bad');
-            }
-
-            // D. 睡觉 (Energy) - 独立检查
-            if (sim.needs[NeedType.Energy] < 40) {
-                if (this.findObject(sim, NeedType.Energy)) return;
-                
-                // 困极了的兜底
-                if (sim.needs[NeedType.Energy] < 10) {
-                    sim.say("困困...💤", 'bad');
-                    sim.needs[NeedType.Energy] += 0.05;
-                    return; // 强制休息，不再执行后续
-                }
-            }
-
-            // === [修复 2] 增加社交逻辑，但加上“防走失”限制 ===
-            // 只有当生理需求尚可时，才考虑社交
-            if (sim.needs[NeedType.Social] < 60) {
-                // 手动查找：只找“在家里的”且“能走到的”人，防止宝宝跑到公园去
-                const target = GameStore.sims.find(s => 
-                    s.id !== sim.id && 
-                    s.homeId === sim.homeId && // 必须是一家人
-                    s.isAtHome() &&            // 必须此刻在家
-                    !DecisionLogic.isRestricted(sim, s.pos) // 必须能走到
-                );
-
-                if (target) {
-                    sim.target = { x: target.pos.x + 30, y: target.pos.y };
-                    sim.interactionTarget = { type: 'human', ref: target };
-                    sim.startMovingToInteraction();
-                    return;
-                }
-            }
-
-            // E. 娱乐 (Fun) - 最后才考虑玩
-            if (sim.needs[NeedType.Fun] < 60) {
-                if (this.findObject(sim, NeedType.Fun)) return;
-            }
-
-            // F. 闲逛
-            if (sim.action === SimAction.Idle && Math.random() < 0.5) sim.startWandering();
+        // 2. 如果当前有计划队列，且处于空闲状态，执行下一步
+        if (sim.hasPlan() && sim.action === SimAction.Idle) {
+            this.executeNextAction(sim);
             return;
         }
 
-        //成人
-        // 2. 紧急生存检查 (Health)
-        if (sim.health < 60 || sim.hasBuff('sick')) { 
-            if (DecisionLogic.findObject(sim, 'healing')) return;
+        // 3. 如果正在忙 (Working, Sleeping, etc.)，除非发生紧急状况，否则不打断
+        // (紧急状况打断逻辑通常在 NeedsLogic.checkHealth 或外部事件中处理，这里只负责空闲时的决策)
+        if (sim.action !== SimAction.Idle && sim.action !== SimAction.Wandering) {
+            return;
         }
 
-        // 3. 需求危机处理 (Critical Needs)
-        // [修复] 收集所有危机需求并按严重程度排序，依次尝试解决
-        let critical = [
-            { id: NeedType.Energy, val: sim.needs[NeedType.Energy] },
-            { id: NeedType.Hunger, val: sim.needs[NeedType.Hunger] },
-            { id: NeedType.Bladder, val: sim.needs[NeedType.Bladder] },
-            { id: NeedType.Hygiene, val: sim.needs[NeedType.Hygiene] }
-        ].filter(n => n.val < 40);
+        // 4. 处于空闲状态，生成新意图
+        // 增加一个简单的冷却时间，避免每帧都思考，模拟“发呆”
+        sim.decisionTimer = (sim.decisionTimer || 0) - 1;
+        if (sim.decisionTimer > 0) return;
+        sim.decisionTimer = 60; // 每 60 帧思考一次
 
-        if (critical.length > 0) {
-            critical.sort((a, b) => a.val - b.val);
-            // 依次尝试，如果某个需求解决失败（如没钱吃饭），则尝试下一个（如去睡觉）
-            for (const crit of critical) {
-                if (DecisionLogic.findObject(sim, crit.id)) return; // 成功找到解决方案
-            }
-            // 如果所有危机需求都无法解决，才会掉落到后续逻辑或闲逛
-        }
-
-        // 4. 普通评分逻辑
-        let scores: { id: string, score: number, type: string }[] = [];
-
-        scores.push({ id: NeedType.Energy, score: (100 - sim.needs[NeedType.Energy]) * 2.5, type: 'obj' });
-        scores.push({ id: NeedType.Hunger, score: (100 - sim.needs[NeedType.Hunger]) * 2.0, type: 'obj' });
-        scores.push({ id: NeedType.Bladder, score: (100 - sim.needs[NeedType.Bladder]) * 3.0, type: 'obj' });
-        scores.push({ id: NeedType.Hygiene, score: (100 - sim.needs[NeedType.Hygiene]) * 1.5, type: 'obj' });
+        // A. 评估意图
+        const intent = this.evaluateBestIntent(sim);
         
-        let funWeight = sim.mbti.includes('P') ? 1.5 : 1.0;
-        scores.push({ id: NeedType.Fun, score: (100 - sim.needs[NeedType.Fun]) * funWeight, type: 'fun' });
-
-        let socialScore = (100 - sim.needs[NeedType.Social]) * 1.5;
-        if (sim.mbti.startsWith('E')) socialScore *= 1.5;
-        if (sim.hasBuff('lonely')) socialScore += 50;
-        if (sim.hasBuff('in_love') || sim.partnerId) socialScore += 20;
-        scores.push({ id: NeedType.Social, score: socialScore, type: 'social' });
-
-        // 购物
-        if (![AgeStage.Infant, AgeStage.Toddler].includes(sim.ageStage) && sim.money > 500 && (sim.mood > 80 || sim.hasBuff('shopping_spree'))) { 
-            scores.push({ id: 'buy_item', score: 40 + (sim.money / 200), type: 'obj' }); 
-        }
-
-        // 副业
-        if (sim.job.id === 'unemployed' && ![AgeStage.Infant, AgeStage.Toddler, AgeStage.Child].includes(sim.ageStage)) {
-            let moneyDesire = 0;
-            if (sim.money < 500) moneyDesire = 150; 
-            else if (sim.money < 2000) moneyDesire = 80;
-            else if (sim.lifeGoal.includes('富翁')) moneyDesire = 60;
-            if (moneyDesire > 0) scores.push({ id: 'side_hustle', score: moneyDesire, type: 'work' });
-        }
-
-        // 技能
-        if (![AgeStage.Infant, AgeStage.Toddler].includes(sim.ageStage)) {
-            for (let skillKey in sim.skills) {
-                let skillDesire = 0;
-                const talent = sim.skillModifiers[skillKey] || 1;
-                if (sim.mbti.includes('J')) skillDesire += 25;
-                if (DecisionLogic.isCareerSkill(sim, skillKey)) skillDesire += 30;
-                if (DecisionLogic.isGoalSkill(sim, skillKey)) skillDesire += 30;
-                if (sim.traits.includes('懒惰')) skillDesire -= 30;
-                if (sim.needs[NeedType.Energy] < 30) skillDesire -= 50;
-                skillDesire *= talent;
-                scores.push({ id: `skill_${skillKey}`, score: skillDesire, type: 'obj' });
-            }
-        }
-
-        // 娱乐评分 (优化)
-        if (sim.needs[NeedType.Fun] < 60 && ![AgeStage.Infant, AgeStage.Toddler].includes(sim.ageStage)) {
-            const funScore = (100 - sim.needs[NeedType.Fun]) * 1.5;
-            
-            if (sim.money > 100) scores.push({ id: 'cinema_3d', score: funScore, type: 'obj' });
-            if (sim.mbti.includes('N')) scores.push({ id: 'art', score: funScore * 1.2, type: 'obj' });
-            
-            // [新增] 添加通用娱乐设施搜索
-            scores.push({ id: 'computer_play', score: funScore, type: 'obj' }); // 玩电脑
-            scores.push({ id: 'read_book', score: funScore * 0.8, type: 'obj' }); // 看书
-            scores.push({ id: 'watch_tv', score: funScore * 0.9, type: 'obj' }); // 看电视
-        }
-
-        scores.sort((a, b) => b.score - a.score);
+        // B. 生成计划
+        const plan = this.planForIntent(sim, intent);
         
-        // 5. 执行Top 3 决策
-        const topCandidates = scores.slice(0, 3).filter(s => s.score > 25);
-        
-        // [修复] 依次尝试 Top Candidates，直到成功为止
-        for (const choice of topCandidates) {
-            let success = false;
-            
-            if (choice.id === NeedType.Social) success = DecisionLogic.findHuman(sim);
-            else if (choice.id === 'side_hustle') success = DecisionLogic.findSideHustle(sim);
-            else if (choice.id.startsWith('skill_')) {
-                const skillName = choice.id.replace('skill_', '');
-                let actionType = skillName;
-                if (skillName === 'charisma') actionType = 'practice_speech';
-                if (skillName === 'logic') actionType = 'play_chess';
-                if (skillName === 'creativity') actionType = 'paint';
-                if (skillName === 'music') actionType = 'play_instrument';
-                if (skillName === 'athletics') actionType = 'gym_run';
-                success = DecisionLogic.findObject(sim, actionType);
-            }
-            else success = DecisionLogic.findObject(sim, choice.id);
-
-            if (success) return; // 成功执行，退出
+        // C. 应用计划
+        if (plan.length > 0) {
+            sim.setPlan(intent, plan);
+            this.executeNextAction(sim); // 立即执行第一步
+        } else {
+            // 如果没生成计划（比如找不到东西），则随机闲逛一会
+            sim.startWandering();
         }
-
-        // 6. 青少年强制学习 (兜底)
-        if ([AgeStage.Child, AgeStage.Teen].includes(sim.ageStage) && sim.job.id === 'unemployed') {
-            if ((sim.schoolPerformance || 60) < 60 && sim.needs[NeedType.Fun] > 30) {
-                if (DecisionLogic.findObject(sim, sim.ageStage === AgeStage.Teen ? 'study_high' : 'study')) return;
-            }
-        }
-
-        // 7. 实在无事可做，才闲逛
-        sim.startWandering();
     },
 
     // [修复] 返回 boolean 表示是否成功找到并开始执行
@@ -720,5 +1233,142 @@ export const DecisionLogic = {
             return true;
         }
         return false;
-    }
+    },
+
+    /**
+     * 🔍 [辅助] 查找最佳家具对象 (Pro版)
+     * 具备“性格感知”和“情境感知”的智能评分系统
+     */
+    findBestFurniture(sim: Sim, utilityTypes: string[]): Furniture | null {
+        let candidates: Furniture[] = [];
+        
+        // 1. 收集所有候选家具
+        utilityTypes.forEach(type => {
+            const list = GameStore.furnitureIndex.get(type);
+            if (list) candidates = candidates.concat(list);
+        });
+
+        if (candidates.length === 0) return null;
+
+        // --- 0. 准备上下文 ---
+        // 预计算一些状态，避免在循环中重复计算
+        const isUrgent = sim.needs[NeedType.Bladder] < 20 || sim.needs[NeedType.Hunger] < 15 || sim.needs[NeedType.Energy] < 10;
+        const isSnob = sim.traits.includes('势利眼');
+        const isGeek = sim.traits.includes('极客') || sim.traits.includes('书呆子');
+        const isActive = sim.traits.includes('运动');
+        const isLazy = sim.traits.includes('懒惰');
+        const isLoner = sim.traits.includes('独行侠');
+        
+        // 2. 筛选逻辑 (硬性过滤)
+        const validCandidates = candidates.filter(f => {
+            // A. 权限检查 (核心)
+            if (this.isRestricted(sim, f)) return false;
+            
+            // B. 经济检查 (买不起的别看)
+            // 注意：某些公共设施 cost 为 0，但 interactionRegistry 里可能有扣费，这里只检查标价
+            if ((f.cost || 0) > sim.money) return false;
+
+            // C. 占用检查
+            if (f.reserved && f.reserved !== sim.id) return false;
+            if (!f.multiUser) {
+                // 检查是否有人正在用 (InteractionTarget 指向它)
+                const isOccupied = GameStore.sims.some(s => s.id !== sim.id && s.interactionTarget?.id === f.id);
+                if (isOccupied) return false;
+            }
+
+            // D. 专用性检查
+            // 电脑：如果是极客，只用高配电脑 (假设 label 区分)；如果是工作，必须用能工作的。
+            // 这里暂且不做过细过滤，交给下面的评分系统
+            
+            return true;
+        });
+
+        if (validCandidates.length === 0) return null;
+
+        // 3. 智能评分排序 (Smart Scoring)
+        validCandidates.sort((a, b) => {
+            let scoreA = 0;
+            let scoreB = 0;
+
+            // --- 因子 1: 距离 (Distance) ---
+            // 基础权重：越近分越高
+            const distA = Math.hypot(a.x - sim.pos.x, a.y - sim.pos.y);
+            const distB = Math.hypot(b.x - sim.pos.x, b.y - sim.pos.y);
+            
+            // 距离权重计算
+            let distWeight = 0.5; // 默认权重
+            if (isUrgent) distWeight = 5.0; // 尿急/饿昏时，距离就是一切
+            if (isLazy) distWeight = 2.0;   // 懒人不想多走路
+
+            scoreA -= distA * distWeight;
+            scoreB -= distB * distWeight;
+
+            // 如果非常紧急，基本只看距离，忽略下面花里胡哨的属性
+            if (isUrgent) return scoreB - scoreA;
+
+            // --- 因子 2: 物品等级/价格 (Tier/Cost) ---
+            // 假设家具没有显式 tier 字段，用 cost 近似代替
+            const costA = a.cost || 0;
+            const costB = b.cost || 0;
+
+            if (isSnob) {
+                // 势利眼：喜欢贵的，讨厌便宜的
+                scoreA += costA * 1.0; 
+                scoreB += costB * 1.0;
+            } else if (sim.money < 100) {
+                // 穷人：优先选免费的
+                if (costA === 0) scoreA += 500;
+                if (costB === 0) scoreB += 500;
+            }
+
+            // --- 因子 3: 性格匹配 (Trait Matching) ---
+            const matchTrait = (f: Furniture, keywords: string[], bonus: number) => {
+                if (keywords.some(k => f.utility.includes(k) || f.label.includes(k))) return bonus;
+                return 0;
+            };
+
+            // 极客/书呆子：爱电脑、书
+            if (isGeek) {
+                scoreA += matchTrait(a, ['computer', 'book', 'logic'], 100);
+                scoreB += matchTrait(b, ['computer', 'book', 'logic'], 100);
+                // 讨厌运动
+                scoreA -= matchTrait(a, ['gym', 'sport', 'run'], 50);
+                scoreB -= matchTrait(b, ['gym', 'sport', 'run'], 50);
+            }
+
+            // 运动狂：爱健身
+            if (isActive) {
+                scoreA += matchTrait(a, ['gym', 'sport', 'run', 'swim'], 150);
+                scoreB += matchTrait(b, ['gym', 'sport', 'run', 'swim'], 150);
+            }
+
+            // --- 因子 4: 拥挤度/社交偏好 (Crowd/Privacy) ---
+            // 独行侠不喜欢人多的地方
+            if (isLoner) {
+                // 简单的启发式：如果家具有 multiUser 标记（通常是沙发、长椅），独行侠会降低评分
+                if (a.multiUser) scoreA -= 30;
+                if (b.multiUser) scoreB -= 30;
+            }
+
+            // --- 因子 5: 舒适度与心情 (Mood) ---
+            // 如果心情不好，优先找舒适度高的 (utility='comfort' 或 'bed')
+            if (sim.mood < 40) {
+                if (a.utility === 'comfort' || a.utility === 'bed') scoreA += 80;
+                if (b.utility === 'comfort' || b.utility === 'bed') scoreB += 80;
+            }
+
+            return scoreB - scoreA; // 降序排列
+        });
+
+        // 引入一点随机性，避免永远只选分最高的那一个（增加行为多样性）
+        // 取前 3 名，随机选一个 (如果是紧急情况，validCandidates 排序第一的通常是最近的，直接返回)
+        if (isUrgent) return validCandidates[0];
+        
+        const topN = Math.min(validCandidates.length, 3);
+        const bestCandidates = validCandidates.slice(0, topN);
+        return bestCandidates[Math.floor(Math.random() * bestCandidates.length)];
+    },
+    
+    
 };
+
