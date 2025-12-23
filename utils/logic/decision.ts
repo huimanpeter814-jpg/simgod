@@ -365,9 +365,42 @@ export const DecisionLogic = {
         }
         return false;
     },
+    
 
     // [修复] 返回 boolean，移除自动闲逛
     findObject(sim: Sim, type: string): boolean {
+        // 🆕 辅助函数：统一价格检查逻辑
+        const canAfford = (sim: Sim, f: Furniture) => {
+            let estimatedCost = f.cost || 0;
+            
+            // 补充隐形消费的价格（必须 >= interactionRegistry 中的判定值）
+            if (estimatedCost === 0) {
+                switch (f.utility) {
+                    case 'eat_out': estimatedCost = 60; break;
+                    case 'buy_food': estimatedCost = 20; break;
+                    case 'buy_drink': estimatedCost = 5; break;
+                    case 'buy_book': estimatedCost = 60; break;
+                    case 'buy_item': estimatedCost = 50; break;
+                    case 'gardening': estimatedCost = 5; break; // 种子
+                    case 'paint': estimatedCost = 20; break; // 颜料
+                    case 'cooking': 
+                        // 做饭特判：有食材就免费，没食材要花钱买菜
+                        if (!sim.hasFreshIngredients) estimatedCost = 20; 
+                        break;
+                }
+            }
+
+            // 1. 绝对买不起
+            if (estimatedCost > sim.money) return false;
+
+            // 2. 穷困潦倒保护：如果钱很少(<20)，且不是快饿死(<10)，不要去消费，尽量找免费的
+            if (sim.money < 20 && estimatedCost > 0) {
+                // 如果是极度饥饿，允许饥不择食（只要买得起）
+                if (sim.needs.hunger > 10) return false;
+            }
+
+            return true;
+        };
         let utility = type;
         const simpleMap: Record<string, string> = {
              [NeedType.Hunger]: 'hunger', [NeedType.Bladder]: 'bladder', [NeedType.Hygiene]: 'hygiene', [NeedType.Energy]: 'energy',
@@ -463,23 +496,8 @@ export const DecisionLogic = {
                 }
 
                 // 3. 经济
-                // 3. 经济
-                let estimatedCost = f.cost || 0;
-                
-                // [关键修复] 为默认没有标价的交互补充默认价格，需与 interactionRegistry 保持一致
-                if (estimatedCost === 0) {
-                    if (f.utility === 'eat_out') estimatedCost = 60;
-                    else if (f.utility === 'buy_food') estimatedCost = 20;
-                    else if (f.utility === 'buy_drink') estimatedCost = 5;
-                    // 如果有其他隐形消费的设施，也可以在这里补充
-                }
-
-                // 检查是否买得起
-                if (estimatedCost > sim.money) return false;
-                
-                // 饥饿特判：如果非常穷(少于20块)，不要去那些需要花钱的地方(哪怕买得起)，优先找免费的/家里吃
-                // 除非实在快饿死了(Hunger < 10)才饥不择食
-                if (type === NeedType.Hunger && sim.money < 20 && estimatedCost > 0 && sim.needs[NeedType.Hunger] > 10) return false;
+                //if (type === NeedType.Hunger && sim.money < 20 && estimatedCost > 0 && sim.needs[NeedType.Hunger] > 10) return false;
+                if (!canAfford(sim, f)) return false;
                 // 4. 占用
                 if (f.reserved && f.reserved !== sim.id) return false;
                 if (!f.multiUser) {
@@ -489,7 +507,8 @@ export const DecisionLogic = {
                 
                 // 5. 婴幼儿允许项
                 if ([AgeStage.Infant, AgeStage.Toddler].includes(sim.ageStage)) {
-                    const allowed = ['energy', 'nap_crib', 'play', 'play_blocks', 'hunger', 'bladder', 'hygiene'];
+                    // [优化] 增加 'fun' (通用娱乐) 和 'comfort' (沙发)，防止家里没玩具时宝宝无聊死
+                    const allowed = ['energy', 'nap_crib', 'play', 'play_blocks', 'hunger', 'bladder', 'hygiene', 'fun', 'comfort'];
                     if (!allowed.includes(f.utility) && !f.tags?.includes('baby')) return false;
                     if (f.tags?.includes('stove') || f.tags?.includes('gym') || f.tags?.includes('computer')) return false;
                     
@@ -500,12 +519,15 @@ export const DecisionLogic = {
             });
 
             // 兜底：如果强制回家导致没找到，尝试公共设施
-            if (validCandidates.length === 0 && forceHome) {
+            // [修复] 增加年龄判断：如果是婴幼儿，严禁触发兜底逻辑去外面找东西，找不到就找不到（会触发发呆或哭闹），坚决不能自己出门
+            if (validCandidates.length === 0 && forceHome && ![AgeStage.Infant, AgeStage.Toddler].includes(sim.ageStage)) {
                 validCandidates = candidates.filter((f: Furniture) => {
                     if (DecisionLogic.isRestricted(sim, f)) return false;
                     if (f.homeId && f.homeId !== sim.homeId) return false; 
-                    if (type === NeedType.Hunger && sim.money < 20 && f.cost && f.cost > 0) return false;
-                    if (f.cost && f.cost > sim.money) return false;
+                    
+                    // 3. 经济 (同样替换为新函数)
+                    if (!canAfford(sim, f)) return false; 
+                    
                     if (f.reserved && f.reserved !== sim.id) return false;
                     if (!f.multiUser && GameStore.sims.some(s => s.id !== sim.id && s.interactionTarget?.id === f.id)) return false;
                     return true;
