@@ -298,6 +298,22 @@ export const SocialLogic = {
     performSocial(sim: Sim, partner: Sim) {
         const goalComp = SocialLogic.getLifeGoalCompatibility(sim, partner); 
         const charmDiff = sim.appearanceScore - partner.appearanceScore; 
+        // 🔴 [修复] 强化乱伦检查：不仅查 Map，还要查 ID
+        const isFamilyByMap = sim.relationships[partner.id]?.kinship && 
+                              sim.relationships[partner.id]?.kinship !== 'spouse' && 
+                              sim.relationships[partner.id]?.kinship !== 'none';
+                              
+        const isFamilyByID = sim.fatherId === partner.id || sim.motherId === partner.id || 
+                             partner.fatherId === sim.id || partner.motherId === sim.id ||
+                             sim.childrenIds.includes(partner.id) || partner.childrenIds.includes(sim.id);
+        if (isFamilyByMap || isFamilyByID) {
+            // 如果 ID 匹配但 Map 没记录，顺便补上，防止下次还漏
+            if (!sim.relationships[partner.id]?.kinship) {
+                 const type = (sim.fatherId === partner.id || sim.motherId === partner.id) ? 'parent' : 'child';
+                 SocialLogic.setKinship(sim, partner, type);
+            }
+            return; // 阻止乱伦互动
+        }
         const isIncest = sim.relationships[partner.id]?.kinship && sim.relationships[partner.id]?.kinship !== 'spouse' && sim.relationships[partner.id]?.kinship !== 'none';
         if (isIncest) return; 
         

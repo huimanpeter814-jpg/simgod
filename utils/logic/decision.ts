@@ -1290,6 +1290,17 @@ export const DecisionLogic = {
         
         // 2. 筛选逻辑 (硬性过滤)
         const validCandidates = candidates.filter(f => {
+            // 🛑 [核心修复] 婴幼儿严禁独自出门：只能使用家里的东西
+            if ([AgeStage.Infant, AgeStage.Toddler].includes(sim.ageStage)) {
+                if (sim.homeId) {
+                    // 如果有家，必须是家里的物品 (严禁跑去邻居家或公园)
+                    if (f.homeId !== sim.homeId) return false;
+                } else {
+                    // 如果无家可归(极少见)，只准选身边的物品 (500px范围)，防止横穿地图
+                    const distSq = (f.x - sim.pos.x)**2 + (f.y - sim.pos.y)**2;
+                    if (distSq > 250000) return false; 
+                }
+            }
             // A. 权限检查 (核心)
             if (this.isRestricted(sim, f)) return false;
             
