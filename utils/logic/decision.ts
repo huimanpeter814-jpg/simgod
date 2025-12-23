@@ -695,9 +695,26 @@ export const DecisionLogic = {
                     // 对于人：
                     const targetSim = GameStore.sims.find(s => s.id === action.targetId);
                     if (targetSim) {
+                        // 🛑 [修复] 婴幼儿追人防暴走检查
+                        if ([AgeStage.Infant, AgeStage.Toddler].includes(sim.ageStage)) {
+                            // 1. 如果目标跑太远了 (>500px)，放弃追逐
+                            const dist = Math.hypot(targetSim.pos.x - sim.pos.x, targetSim.pos.y - sim.pos.y);
+                            if (dist > 500) {
+                                sim.say("追不上...", 'sys');
+                                sim.currentIntent = SimIntent.IDLE;
+                                return;
+                            }
+                            // 2. 如果目标已经不在家了（且宝宝本来是在家的），放弃追逐
+                            if (sim.isAtHome() && !targetSim.isAtHome()) {
+                                sim.say("别跑呀...", 'sys');
+                                sim.currentIntent = SimIntent.IDLE;
+                                return;
+                            }
+                        }
+
                         sim.target = { ...targetSim.pos }; // 更新为最新位置
-                        sim.interactionTarget = { type: 'human', ref: targetSim }; // 预设交互目标
-                    } 
+                        sim.interactionTarget = { type: 'human', ref: targetSim }; 
+                    }
                     // 对于物体：
                     else {
                         const targetObj = GameStore.furniture.find(f => f.id === action.targetId);
