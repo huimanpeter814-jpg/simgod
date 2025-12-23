@@ -390,6 +390,14 @@ export const SocialLogic = {
         }
 
         let success = true;
+        // 🔴 [新增] 关键修复：检查接收方(Partner)的性取向是否接受发起方(Sim)
+        // 防止出现 "直男强撩女同" 且还能成功的情况
+        if (finalType.type === 'romance') {
+            const isPartnerCompatible = SocialLogic.checkSexualOrientation(partner, sim);
+            if (!isPartnerCompatible) {
+                success = false; // 对方性取向不合，直接拒绝
+            }
+        }
         
         if (finalType.type === 'romance') {
             if (partner.faithfulness > 70 && SocialLogic.hasOtherPartner(partner, sim)) success = false;
