@@ -2,6 +2,25 @@
 import { GameStore } from './GameStore';
 import { gameLoopStep } from './GameLoop';
 import { Sim } from './Sim';
+import { SAB_CONFIG, ACTION_CODE } from '../constants'; // 引入配置
+
+// 1. 🟢 [新增] 全局变量：记录上一次自动存档是第几天
+// 初始化为 1 (或 GameStore.time.totalDays)，防止刚开始游戏就存一次
+let lastAutoSaveDay = 1;
+
+// 2. 🟢 [新增] 辅助函数：收集全量存档数据 (避免 SAVE_GAME 和 自动存档 写两遍一样的代码)
+const collectSaveData = () => {
+    return {
+        version: 3.2,
+        timestamp: Date.now(),
+        time: GameStore.time,
+        logs: GameStore.logs,
+        sims: GameStore.sims,
+        worldLayout: GameStore.worldLayout,
+        rooms: GameStore.rooms,
+        furniture: GameStore.furniture
+    };
+};
 
 // 标记我们在 Worker 环境中，避免 GameStore 尝试创建 Worker
 // @ts-ignore
@@ -18,58 +37,181 @@ GameStore.worldLayout = [];
 
 const TARGET_FPS = 30; // 逻辑帧率可以锁定在 30 或 60
 const TICK_RATE = 1000 / TARGET_FPS;
+// 定义同步频率：每隔多少个逻辑帧同步一次 UI 数据
+// 如果 TARGET_FPS 是 30，这里设为 3，意味着 UI 同步率为 10 FPS (足够了)
+const UI_SYNC_INTERVAL = 3;
+let tickCount = 0;
 
 const startLoop = () => {
     if (loopInterval) clearInterval(loopInterval);
     loopInterval = setInterval(() => {
-        // 执行一帧逻辑
-        gameLoopStep(1); // dt = 1 (或者基于时间差计算)
+        // 1. 执行逻辑计算 (保持不变)
+        gameLoopStep(1); 
 
-        // 将核心数据同步回主线程用于渲染
-        // 为了性能，我们只发送渲染和UI需要的数据
+        // 3. 🟢 [新增] 每日 0 点自动存档检测
+        // 逻辑：如果当前总天数 > 上次存档天数，说明刚刚跨过了午夜 0:00
+        if (GameStore.time.totalDays > lastAutoSaveDay) {
+            lastAutoSaveDay = GameStore.time.totalDays;
+            
+            // 构造数据
+            const saveData = collectSaveData();
+            
+            // 发送给主线程进行保存 (默认覆盖 Slot 1)
+            self.postMessage({ 
+                type: 'SAVE_DATA_READY', 
+                payload: { slot: 1, data: saveData } 
+            });
+            
+            // 往日志里写一条，让玩家知道存档了
+            GameStore.addLog(null, "🌙 夜深了，系统已自动保存进度。", "sys");
+        }
+
+        // 2. 🚀 [新增] 将数据写入共享内存 (Zero Copy Sync)
+        // 只有当内存初始化后才执行
+        if (GameStore.sharedView) {
+            GameStore.sims.forEach(s => {
+                // 🛑 修改点：不再在循环里 alloc，而是直接获取
+                // 只有已分配索引的 Sim 才会同步位置，性能更高
+                const index = GameStore.simIndexMap.get(s.id);
+                
+                // 只有获取到有效的 index (非 undefined 且非 -1) 才写入
+                if (index !== undefined && index !== -1) {
+                    const base = index * SAB_CONFIG.STRUCT_SIZE;
+                    const view = GameStore.sharedView;
+
+                    // 写入各项数据
+                    view[base + SAB_CONFIG.OFFSET_X] = s.pos.x;
+                    view[base + SAB_CONFIG.OFFSET_Y] = s.pos.y;
+                    
+                    // 将字符串动作转换为数字 ID (如果在 ACTION_CODE 里没找到，就默认为 0/idle)
+                    // 注意：你需要确保 s.action 是字符串，或者根据你的逻辑调整
+                    const actionKey = s.action as string; 
+                    view[base + SAB_CONFIG.OFFSET_ACTION] = ACTION_CODE[actionKey as keyof typeof ACTION_CODE] || 0;
+                    
+                    // 示例：写入朝向 (简单判断：如果目标在右边则为 1，左边为 0)
+                    // view[base + SAB_CONFIG.OFFSET_DIR] = (s.target && s.target.x > s.pos.x) ? 1 : 0;
+                }
+            });
+        }
+
+        // 3. 发送消息回主线程
+        // ⚠️ 关键优化：既然位置已经通过 SAB 同步了，payload 里就不需要发那么详细的数据了
+        // 但为了保持兼容性，同时也为了让主线程知道 "哪个 ID 对应 哪个 SAB Index"，
+        // 我们需要在 payload 里带上 index 信息。
+        // === 2. UI 数据同步 (降频处理) ===
+        tickCount++;
+        if (tickCount % UI_SYNC_INTERVAL === 0) {
+            // 只有在这个 block 里的代码才会消耗序列化性能
         const syncData = {
             type: 'SYNC',
             payload: {
-                sims: GameStore.sims.map(s => ({
-                    // 序列化 Sim 对象，保留渲染所需属性
-                    id: s.id,
-                    name: s.name,
-                    pos: s.pos,
-                    action: s.action,
-                    ageStage: s.ageStage,
-                    appearance: s.appearance,
-                    skinColor: s.skinColor,
-                    hairColor: s.hairColor,
-                    clothesColor: s.clothesColor,
-                    pantsColor: s.pantsColor,
-                    mood: s.mood,
-                    health: s.health,
-                    bubble: s.bubble,
-                    carryingSimId: s.carryingSimId,
-                    carriedBySimId: s.carriedBySimId,
-                    // 其他 UI 可能需要的属性...
-                    job: s.job,
-                    money: s.money,
-                    needs: s.needs,
-                    relationships: s.relationships,
-                    memories: s.memories, // 注意：如果记忆太多可能会卡，可考虑截断
-                    familyId: s.familyId,
-                    surname: s.surname,
-                    partnerId: s.partnerId,
-                    childrenIds: s.childrenIds,
-                    traits: s.traits,
-                    isPregnant: s.isPregnant,
-                    isTemporary: s.isTemporary,
-                    homeId: s.homeId,
-                    workplaceId: s.workplaceId
-                })),
+                sims: GameStore.sims.map(s => {
+                    // 1. 基础数据 (Roster 和 Canvas 需要的)
+                    const baseData: any = {
+                        id: s.id,
+                        sabIndex: GameStore.simIndexMap.get(s.id) ?? -1,
+                        name: s.name,
+                        surname: s.surname,
+                        familyId: s.familyId, // Roster 分组需要
+                        gender: s.gender,
+                        ageStage: s.ageStage,
+                        age: s.age, // Inspector header 需要
+                        appearance: s.appearance, // Roster 头像需要
+                        mood: s.mood,
+                        health: s.health,
+                        action: s.action, // UI文字显示
+                        bubble: s.bubble,
+                        homeId: s.homeId, 
+                        job: { id: s.job?.id, title: s.job?.title },
+                        isPregnant: s.isPregnant,
+                        skinColor: s.skinColor,
+                        hairColor: s.hairColor,
+                        clothesColor: s.clothesColor,
+                        pantsColor: s.pantsColor,
+                        traits: s.traits,
+                        mbti: s.mbti,
+                        money: s.money,   
+                        height: s.height, 
+                        weight: s.weight, 
+                        partnerId: s.partnerId,    // 修复“已婚变单身”
+                        lifeGoal: s.lifeGoal,      // 修复目标显示
+                        orientation: s.orientation,// 修复性取向显示
+                        buffs: s.buffs.map(b => ({ id: b.id, type: b.type, label: b.label })),
+                    };
+
+                   
+                    // 2. 🔥 [优化] 只有当该 Sim 是被选中的 Sim 时，才发送详细数据
+                    if (s.id === GameStore.selectedSimId) {
+                        // === 核心需求与状态 (StatusTab) ===
+                        baseData.needs = s.needs;
+                        baseData.buffs = s.buffs;
+                        
+                        // === AI 决策大脑 (StatusTab) ===
+                        baseData.currentIntent = s.currentIntent;
+                        baseData.actionQueue = s.actionQueue;
+                        baseData.lastDecisionReason = s.lastDecisionReason; // Why
+                        baseData.currentPlanDescription = s.currentPlanDescription; // Strategy
+                        // 处理 interactionTarget，防止发送巨大对象或循环引用，只取 UI 需要的 label
+                        baseData.interactionTarget = s.interactionTarget ? { label: s.interactionTarget.label } : null;
+
+                        // === 经济系统 (StatusTab) ===
+                        baseData.money = s.money;
+                        baseData.dailyBudget = s.dailyBudget;
+                        baseData.dailyIncome = s.dailyIncome;
+                        baseData.dailyExpense = s.dailyExpense;
+                        baseData.dailyTransactions = s.dailyTransactions;
+
+                        // === 属性与技能 (AttrTab) ===
+                        baseData.skills = s.skills;
+                        baseData.traits = s.traits;
+                        baseData.lifeGoal = s.lifeGoal;
+                        baseData.zodiac = s.zodiac;
+                        baseData.mbti = s.mbti;
+                        baseData.orientation = s.orientation;
+                        
+                        // 身体数值 (AttrTab)
+                        baseData.height = s.height;
+                        baseData.weight = s.weight;
+                        baseData.appearanceScore = s.appearanceScore;
+                        baseData.luck = s.luck;
+                        baseData.constitution = s.constitution;
+                        baseData.iq = s.iq;
+                        baseData.eq = s.eq;
+
+                        // 详细色值 (AttrTab 显示文字需要，InspectorFace 可能也需要)
+                        baseData.skinColor = s.skinColor;
+                        baseData.hairColor = s.hairColor;
+                        baseData.clothesColor = s.clothesColor;
+                        baseData.pantsColor = s.pantsColor;
+
+                        // === 职业详细信息 (AttrTab) ===
+                        // baseData 里只有简略的 title，这里覆盖为完整对象以获取 level, salary, hours
+                        baseData.job = s.job; 
+                        baseData.workPerformance = s.workPerformance;
+                        // 🟢 [新增] 同步考评日志 (漏了这一行)
+                        baseData.dailyWorkLog = s.dailyWorkLog;
+
+                        // === 社交与家庭 (FamilyTab / Inspector) ===
+                        baseData.relationships = s.relationships; // 包含亲密度、恋爱关系
+                        baseData.partnerId = s.partnerId;
+                        baseData.fatherId = s.fatherId;
+                        baseData.motherId = s.motherId;
+                        baseData.childrenIds = s.childrenIds;
+                        baseData.familyLore = s.familyLore;
+                        baseData.faithfulness = s.faithfulness; // 专一度
+
+                        // === 记忆系统 (Inspector Memory Tab) ===
+                        baseData.memories = s.memories;
+                    }
+
+                    return baseData;
+                }),
                 time: GameStore.time,
-                logs: GameStore.logs // 同步日志
+                logs: GameStore.logs // 日志也可以做 diff 优化，暂时全量
             }
         };
-        
         self.postMessage(syncData);
-
+    }
     }, TICK_RATE);
 };
 
@@ -82,6 +224,11 @@ self.onmessage = (e: MessageEvent) => {
     const { type, payload } = e.data;
 
     switch (type) {
+        case 'INIT_SAB':
+            // 接收主线程发来的共享内存，并初始化 Worker 端的 GameStore
+            GameStore.initSharedMemory(payload.buffer);
+            console.log("[Worker] Shared Memory Linked Successfully");
+            break;
         case 'INIT':
             // 接收初始地图数据
             if (payload.worldLayout) GameStore.worldLayout = payload.worldLayout;
@@ -95,6 +242,9 @@ self.onmessage = (e: MessageEvent) => {
             break;
 
         case 'START':
+            // 🛡️ 防御性编程：防止有 Sim 漏掉索引 (比如暂停期间添加的)
+            // 游戏开始/恢复前，扫描一遍所有 Sim，确保都有位置
+            GameStore.sims.forEach(s => GameStore.allocSabIndex(s.id));
             startLoop();
             break;
 
@@ -107,7 +257,7 @@ self.onmessage = (e: MessageEvent) => {
             break;
 
         case 'SPAWN_FAMILY':
-            GameStore.spawnFamily(payload.size);
+            GameStore.spawnFamily(payload?.size);
             break;
 
         case 'SPAWN_SINGLE':
@@ -145,6 +295,79 @@ self.onmessage = (e: MessageEvent) => {
             GameStore.loadSims(data.sims);
             GameStore.initIndex();
             GameStore.refreshFurnitureOwnership();
+            // 🟢 [新增] 读档后，必须为所有人重新分配 SAB 索引
+            // 因为 Worker 重启后内存是新的，索引映射表是空的
+            GameStore.sims.forEach(s => GameStore.allocSabIndex(s.id));
+            // 4. 🟢 [新增] 读档后，更新 lastAutoSaveDay
+            // 否则如果读档是第 10 天，lastAutoSaveDay 还是 1，会立即触发一次不必要的存档
+            lastAutoSaveDay = GameStore.time.totalDays;
+            // 🔥 [新增] 加载完后，把地图数据发回给主线程！
+            self.postMessage({
+                type: 'INIT_MAP', // 使用专用类型
+                payload: {
+                    worldLayout: GameStore.worldLayout,
+                    furniture: GameStore.furniture,
+                    rooms: GameStore.rooms,
+                    housingUnits: GameStore.housingUnits
+                }
+            });
+            break;
+
+        case 'SAVE_GAME':
+            const slot = payload.slot;
+             // 收集全量数据
+            // 5. 🟢 [优化] 使用上面的辅助函数
+             const saveData = collectSaveData();
+             // 发回给主线程保存
+             
+             self.postMessage({ type: 'SAVE_DATA_READY', payload: { slot, data: saveData } });
+             break;
+
+        // ✅ [新增] 处理开始新游戏 (生成默认地图和人口)
+        case 'START_NEW_GAME':
+            console.log("[Worker] Starting New Game...");
+            GameStore.rebuildWorld(true); // 加载默认地图
+            
+            // 生成初始人口 (和以前 initGame 的逻辑一样)
+            GameStore.spawnSingle();
+            GameStore.spawnSingle();
+            GameStore.spawnFamily();
+            GameStore.spawnFamily();
+            // 🟢 [新增] 确保生成的人都有索引
+            GameStore.sims.forEach(s => GameStore.allocSabIndex(s.id));
+            // 6. 🟢 [新增] 新游戏重置计数器
+            lastAutoSaveDay = GameStore.time.totalDays; // 通常是 1
+            
+            // 记录日志
+            GameStore.addLog(null, `新世界已生成！当前人口: ${GameStore.sims.length}`, "sys");
+            // 🔥 [新增] 生成完后，把地图数据发回给主线程！
+            self.postMessage({
+                type: 'INIT_MAP',
+                payload: {
+                    worldLayout: GameStore.worldLayout,
+                    furniture: GameStore.furniture,
+                    rooms: GameStore.rooms,
+                    housingUnits: GameStore.housingUnits
+                }
+            });
+            break;
+
+        case 'SELECT_SIM':
+            GameStore.selectedSimId = payload;
+            break;
+
+        // ✅ [新增] 处理分配住址
+        case 'ASSIGN_HOME':
+            const sim = GameStore.sims.find(s => s.id === payload);
+            if (sim) GameStore.assignRandomHome(sim);
+            break;
+            
+        // ✅ [新增] 处理生成保姆
+        case 'SPAWN_NANNY':
+             // 解构 payload 中的参数
+            const { homeId, task, targetChildId } = e.data.payload;
+            // 调用 Worker 端的 GameStore 执行实际逻辑
+            GameStore.spawnNanny(homeId, task, targetChildId);
             break;
             
         case 'REMOVE_SIM':

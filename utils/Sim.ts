@@ -98,6 +98,8 @@ export class Sim {
     job!: Job; 
     dailyIncome: number = 0; // 确保有默认值
     dailyExpense: number = 0; // 确保有默认值
+    // [新增] 每日工作绩效详情
+    dailyWorkLog: { factor: string, score: number }[] = [];
     
     // 🟢 [新增] 今日收支明细数组
     dailyTransactions: { time: string, amount: number, reason: string, type: 'income' | 'expense' }[] = [];
@@ -152,16 +154,26 @@ export class Sim {
     // [新增] 明确标记 NPC 身份 (UI层应据此过滤，不显示在居民列表)
     isNPC: boolean = false;
 
-    constructor(config: SimInitConfig = {}) {
-        SimInitializer.initialize(this, config);
+    constructor(config: SimInitConfig = {}, skipInit: boolean = false) {
         
-        // 构造后逻辑
-        this.calculateDailyBudget();
-        if ([AgeStage.Adult, AgeStage.MiddleAged].includes(this.ageStage)) { 
-            this.assignJob(); 
+        if (!skipInit) {
+            // 正常初始化逻辑
+            SimInitializer.initialize(this, config);
+            
+            this.calculateDailyBudget();
+            if ([AgeStage.Adult, AgeStage.MiddleAged].includes(this.ageStage)) { 
+                this.assignJob(); 
+            }
         }
         
-        // 初始状态
+        // 🛑 [核心修复] 无论是否 skipInit，pos 都必须存在！
+        // 如果是主线程创建的“替身”(skipInit=true)，这里必须给个默认坐标，
+        // 否则 PixiSimView 在下一行读取 sim.pos.x 时就会崩。
+        if (!this.pos) {
+            this.pos = { x: 0, y: 0 };
+        }
+
+        // 初始状态 (状态机对象很轻量，保留没事)
         this.state = new IdleState();
         this.action = SimAction.Idle;
     }
@@ -215,7 +227,7 @@ export class Sim {
         this.prevPos.x = this.pos.x;
         this.prevPos.y = this.pos.y;
         
-        // 每分钟更新逻辑 (低频)
+        //每分钟更新逻辑 (低频)
         if (minuteChanged) {
             SchoolLogic.checkKindergarten(this); 
             NeedsLogic.updateBuffs(this, 1); 
@@ -413,7 +425,31 @@ export class Sim {
     // 快捷状态切换方法
     startCommuting() { this.changeState(new CommutingState()); }
     startMovingToInteraction() { this.changeState(new MovingState(SimAction.Moving)); }
-    startWandering() { this.changeState(new MovingState(SimAction.Wandering)); }
+    // 🟢 [修复] 闲逛必须设置一个随机目标，否则 MovingState 会立刻结束
+    startWandering() { 
+        // 1. 在当前位置附近随机找一个点 (100~300像素范围)
+        const dist = 100 + Math.random() * 200;
+        const angle = Math.random() * Math.PI * 2;
+        
+        let tx = this.pos.x + Math.cos(angle) * dist;
+        let ty = this.pos.y + Math.sin(angle) * dist;
+
+        // 2. 简单的地图边界限制 (防止走出黑虚空)
+        // 获取地图尺寸 (Worker 端 GameStore.worldLayout 应该已有数据)
+        // 假设默认地块大小叠加，或者简单限制在 0-2500 范围内
+        const boundW = 2500; 
+        const boundH = 2000;
+        
+        tx = Math.max(50, Math.min(boundW - 50, tx));
+        ty = Math.max(50, Math.min(boundH - 50, ty));
+
+        // 3. 设置目标并切换状态
+        this.target = { x: tx, y: ty };
+        this.changeState(new MovingState(SimAction.Wandering)); 
+        
+        // 偶尔冒个泡
+        if (Math.random() < 0.05) this.say("🎵", 'normal');
+    }
     enterWorkingState() { this.changeState(new WorkingState()); }
     enterInteractionState(actionName: string) { this.changeState(new InteractionState(actionName)); }
 }

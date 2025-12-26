@@ -379,9 +379,18 @@ export const CareerLogic = {
             return;
         }
 
+        // 🟢 [核心修复] 引入“生物钟偏差” (Personal Offset)
+        // 利用 sim.id 的哈希值生成一个 -15 到 +15 分钟的固定偏差
+        // 这样每个人的通勤时间点都是固定的，但人与人之间是错开的
+        const idSum = sim.id.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+        const minuteOffset = (idSum % 31) - 15; // -15 ~ +15 分钟
+        const hourOffset = minuteOffset / 60;
+
         const currentHour = GameStore.time.hour + GameStore.time.minute / 60;
-        const jobStart = sim.job.startHour;
-        const jobEnd = sim.job.endHour;
+        
+        // 应用偏差
+        const jobStart = sim.job.startHour + hourOffset; 
+        const jobEnd = sim.job.endHour + hourOffset;
 
         const preTimeHours = (sim.commutePreTime || 30) / 60;
         let commuteStart = jobStart - preTimeHours;
@@ -395,8 +404,50 @@ export const CareerLogic = {
 
         if (isWorkTime) {
             if (sim.hasLeftWorkToday) return;
+            // 🟢 [新增] 上班期间的动态模拟 (避免僵硬)
+            if (sim.action === SimAction.Working) {
+                // 1. 模拟与同事社交 (每分钟约 5% 概率)
+                if (sim.needs[NeedType.Social] < 90 && Math.random() < 0.05) {
+                    // 寻找身边的同事
+                    const colleague = GameStore.sims.find(s => 
+                        s.id !== sim.id && 
+                        s.workplaceId === sim.workplaceId && 
+                        s.action === SimAction.Working
+                    );
+                    
+                    if (colleague) {
+                        // 恢复社交值，不打断工作状态
+                        sim.needs[NeedType.Social] += 15;
+                        sim.needs[NeedType.Fun] += 5;
+                        
+                        // 冒个气泡，增加生动感
+                        const topics = ["周末去哪?", "那个Bug...", "老板来了", "中午吃啥"];
+                        sim.say(topics[Math.floor(Math.random()*topics.length)], 'chat');
+                        
+                        // 增加一点同事好感度 (模拟)
+                        if (!sim.relationships[colleague.id]) SocialLogic.updateRelationship(sim, colleague, 'friendship', 0);
+                        sim.relationships[colleague.id].friendship += 0.5;
+                    }
+                }
+
+                // 2. 模拟轻微移动 (防止长时间重叠/看起来像死机)
+                // 注意：这里只做微调，不要走太远
+                if (Math.random() < 0.01) {
+                    sim.pos.x += (Math.random() - 0.5) * 10;
+                    sim.pos.y += (Math.random() - 0.5) * 10;
+                }
+            }
 
             if (sim.action === SimAction.Working || sim.action === SimAction.Commuting) return;
+            // 🟢 [核心修复] 检查是否有办公地点，如果没有，尝试重新绑定
+            if (!sim.workplaceId) {
+                this.bindWorkplace(sim);
+                // 如果绑定后还是没有 (说明地图上真没这公司)，则不要去上班，避免死循环
+                if (!sim.workplaceId) {
+                    if (Math.random() < 0.01) sim.say("公司倒闭了? 没地儿上班", 'bad');
+                    return;
+                }
+            }
 
             sim.isSideHustle = false;
             sim.consecutiveAbsences = 0; 
@@ -449,6 +500,13 @@ export const CareerLogic = {
      */
     updatePerformance(sim: Sim) {
         let delta = 0;
+        const logs: { factor: string, score: number }[] = [];
+        // 辅助函数：记录得分
+        const addScore = (factor: string, score: number) => {
+            if (score === 0) return;
+            delta += score;
+            logs.push({ factor, score });
+        };
 
         // 1. 状态基础分 (Mood & Needs)
         // 只有身心愉悦，才能高效产出
@@ -463,6 +521,7 @@ export const CareerLogic = {
         // 职位等级越高，对能力数值要求越高 (L1:25, L2:50, L3:75, L4:100)
         const requiredStat = sim.job.level * 25; 
         let myStat = 0;
+        let statName = "综合能力";
         
         // 根据职业类型，考核不同的核心属性
         switch(sim.job.companyType) {
@@ -471,50 +530,64 @@ export const CareerLogic = {
             case JobType.School:
                 // 脑力密集型：看智商和逻辑
                 myStat = Math.max(sim.iq, sim.skills.logic);
+                statName = "逻辑/智商";
                 break;
             case JobType.Business:
             case JobType.Store:
             case JobType.Nightlife:
                 // 社交密集型：看情商和魅力
                 myStat = Math.max(sim.eq, sim.skills.charisma || 0);
+                statName = "社交/魅力";
                 break;
             case JobType.Design:
                 // 创意密集型
                 myStat = Math.max(sim.creativity, sim.skills.creativity || 0);
+                statName = "创意能力";
                 break;
             case JobType.Restaurant:
                 myStat = sim.skills.cooking;
+                statName = "烹饪技能";
                 break;
             case JobType.ElderCare:
                 myStat = Math.max(sim.constitution, sim.eq);
+                statName = "体能/耐心";
                 break;
             default:
                 myStat = 50; // 兜底
         }
 
         // 胜任力判定
-        if (myStat > requiredStat + 30) delta += 5;      // 降维打击 (大材小用，业绩起飞)
-        else if (myStat > requiredStat + 10) delta += 3; // 游刃有余
-        else if (myStat > requiredStat - 10) delta += 1; // 勉强胜任
-        else delta -= 4;                                 // 德不配位 (能力不足，业绩下滑)
+        if (myStat > requiredStat + 30) addScore(`能力出众 (${statName})`, 5);      // 降维打击 (大材小用，业绩起飞)
+        else if (myStat > requiredStat + 10) addScore(`能力优秀 (${statName})`, 3); // 游刃有余
+        else if (myStat > requiredStat - 10) addScore(`能力达标`, 1); // 勉强胜任
+        else addScore(`能力不足 (${statName})`, -4);                                 // 德不配位 (能力不足，业绩下滑)
 
         // 3. 态度与特质 (Attitude)
-        if (sim.traits.includes('勤奋') || sim.traits.includes('工作狂')) delta += 3;
-        if (sim.traits.includes('懒惰')) delta -= 3;
-        if (sim.traits.includes('完美主义')) delta += (Math.random() > 0.5 ? 4 : -1); // 纠结细节，要么神作要么延期
+        if (sim.traits.includes('勤奋') || sim.traits.includes('工作狂')) addScore("勤奋特质", 3);
+        if (sim.traits.includes('懒惰')) addScore("偷懒摸鱼", -3);
+        if (sim.traits.includes('完美主义')) addScore("太纠结细节/完美作品", (Math.random() > 0.5 ? 4 : -1)); // 纠结细节，要么神作要么延期
 
         // 4. Buff 修正
-        if (sim.hasBuff('well_rested')) delta += 2;
-        if (sim.hasBuff('stressed')) delta -= 2;
-        if (sim.hasBuff('promoted')) delta += 5; // 新官上任三把火
+        if (sim.hasBuff('well_rested')) addScore("休息充分", 2);
+        if (sim.hasBuff('stressed')) addScore("压力过大", -2);
+        if (sim.hasBuff('promoted')) addScore("新官上任三把火", 5); // 新官上任三把火
         
         // 5. 随机波动 (职场意外)
-        delta += Math.floor(Math.random() * 6) - 2; // -2 ~ +3
+        const luckScore = Math.floor(Math.random() * 6) - 2;
+        if (luckScore !== 0) addScore("职场运气", luckScore);
 
         // === 结算 ===
         sim.workPerformance += delta;
         sim.workPerformance = Math.max(-100, Math.min(200, sim.workPerformance));
 
+        // 🟢 [修复] 确保日志被正确保存并通知前端
+        // 覆盖旧日志，确保显示的是当天的最新评价
+        sim.dailyWorkLog = logs;
+        // 额外：如果日志不为空，强制触发一次 GameStore 的 Log 更新，确保 UI 收到信号
+        if (logs.length > 0) {
+            // 这里我们不发全量日志，只发一个总结，但 sim.dailyWorkLog 对象已经更新了
+            // 确保你的前端是读取 sim.dailyWorkLog 渲染列表的
+        }
         // 触发升职检查 (只有绩效非常优秀时才尝试)
         if (sim.workPerformance > 100) {
             this.promote(sim);
@@ -635,7 +708,14 @@ export const CareerLogic = {
             GameStore.addLog(sim, `早退结算工资 +$${actualPay}`, 'money');
         }
         sim.hasLeftWorkToday = true;
+        // 🟢 [修复] 必须手动更新 dailyWorkLog，否则前端无法显示当天的考评详情
+        if (!sim.dailyWorkLog) sim.dailyWorkLog = [];
         
+        // 清空旧日志还是追加？通常早退意味着当天工作的结束，我们可以追加一条惩罚记录
+        sim.dailyWorkLog.push({ 
+            factor: "早退行为", 
+            score: -15 
+        });
         sim.workPerformance -= 15;
         
         sim.target = null;

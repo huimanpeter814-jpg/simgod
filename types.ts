@@ -158,6 +158,10 @@ export interface WorldPlot {
 export interface EditorState {
   mode: 'none' | 'plot' | 'furniture' | 'floor'; 
   activeTool: 'camera' | 'select';
+  // [新增] 当前正在编辑的地皮 ID。
+  // 如果为 null，表示在“世界编辑器”模式（只能操作地皮）；
+  // 如果有值，表示在“建筑编辑器”模式（只能在该地皮内操作家具/地板）。
+  activePlotId: string | null;
   selectedPlotId: string | null;
   selectedFurnitureId: string | null;
   selectedRoomId: string | null;
@@ -191,6 +195,11 @@ export interface EditorState {
   } | null;
 
   previewPos: { x: number, y: number } | null;
+
+  gridSize: number;       // 网格大小，默认 50 或 10
+  showGrid: boolean;      // 是否显示网格
+  isValidPlacement: boolean; // 当前预览位置是否合法（用于显示红/绿）
+  snapToGrid: boolean;    // 是否开启吸附
 }
 
 export interface EditorAction {
@@ -259,6 +268,11 @@ export interface Job {
   vacationMonths?: number[]; 
   companyType?: JobType | string; 
   requiredTags?: string[]; 
+}
+
+export interface WorkLogItem {
+    factor: string; // 评分因素，如 "心情极佳"
+    score: number;  // 分值，如 +3
 }
 
 export interface Buff {
@@ -351,6 +365,8 @@ export interface SimData {
   dailyExpense: number;
   dailyIncome: number; 
   isSideHustle?: boolean;
+  // [新增] 每日工作表现详情 (记录上一天/当天的具体加减分项)
+  dailyWorkLog: WorkLogItem[];
   
   royalty?: { amount: number, daysLeft: number };
   hasFreshIngredients?: boolean;

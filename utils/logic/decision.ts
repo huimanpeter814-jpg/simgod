@@ -1,4 +1,3 @@
-
 import type { Sim } from '../Sim'; 
 import { GameStore } from '../simulation';
 import { CONFIG, BUFFS} from '../../constants'; 
@@ -818,6 +817,32 @@ export const DecisionLogic = {
                 (sim.homeId && s.homeId === sim.homeId && s.isAtHome() && s.ageStage >= AgeStage.Adult && s.familyId === sim.familyId)
             )
         );
+        // 🟢 [新增] 幼儿园老师检查
+        // 如果孩子在幼儿园区域，且是上学时间，寻找同区域的老师
+        if ([AgeStage.Infant, AgeStage.Toddler].includes(sim.ageStage)) {
+            const currentPlot = GameStore.worldLayout.find(p => 
+                sim.pos.x >= p.x && sim.pos.x <= p.x + (p.width||300) &&
+                sim.pos.y >= p.y && sim.pos.y <= p.y + (p.height||300)
+            );
+            
+            if (currentPlot && (currentPlot.customType === 'kindergarten' || PLOTS[currentPlot.templateId]?.type === 'kindergarten')) {
+                // 寻找在此地块工作的老师
+                const teachers = GameStore.sims.filter(s => 
+                    s.workplaceId === currentPlot.id && 
+                    s.action === SimAction.Working && // 老师必须在上班
+                    s.ageStage >= AgeStage.Adult
+                );
+                
+                if (teachers.length > 0) {
+                    const teacher = teachers[0]; // 随便找一个老师
+                    teacher.finishAction();
+                    teacher.changeState(new FeedBabyState(sim.id)); // 让老师去喂
+                    sim.say("老师饿饿...🍼", 'sys');
+                    sim.changeState(new WaitingState());
+                    return true;
+                }
+            }
+        }
 
         const candidates = potentialCaregivers.map(candidate => {
             let score = 0;
@@ -926,12 +951,22 @@ export const DecisionLogic = {
              }
              // 防止幼儿离家出走
              if (!sim.isAtHome() && sim.homeId && sim.action === SimAction.Idle) {
-                 // 简单的自动回家指令
-                 sim.setPlan(SimIntent.SURVIVE, [{
-                     type: 'WALK',
-                     targetPos: sim.getHomeLocation() || {x:0,y:0},
-                     desc: '回家'
-                 }]);
+                 const homeLoc = sim.getHomeLocation();
+                 // 🟢 [修复] 只有当成功获取到家的坐标时，才下达回家指令
+                 // 避免 getHomeLocation() 返回 null 时导致孩子走向 (0,0)
+                 if (homeLoc) {
+                     sim.setPlan(SimIntent.SURVIVE, [{
+                         type: 'WALK',
+                         targetPos: homeLoc,
+                         desc: '回家'
+                     }]);
+                     return; // 既然决定回家，就直接返回，不再执行后续思考
+                 } else {
+                     // 如果有 homeId 但找不到坐标 (说明房子可能被删了)，
+                     // 或者真的无家可归，就不要乱跑了，呆在原地发呆等待救援
+                     // 可以在这里加一个 WAIT 或者是求助气泡
+                     // sim.say("家呢...?", 'bad');
+                 }
              }
         }
 
@@ -1139,8 +1174,20 @@ export const DecisionLogic = {
 
             // 3. 成人逻辑
             else if (basicNeeds.includes(type as NeedType)) {
+                // 检查是否正在工作
                 const isAtWork = sim.workplaceId && currentPlot && currentPlot.id === sim.workplaceId;
-                if (!isAtWork) forceHome = true;
+                
+                if (isAtWork) {
+                    // 🟢 [修复] 如果人在公司，且是上班时间，严禁跑出去吃饭！
+                    // 必须强制限制在当前地块(公司)内寻找设施(如公司食堂/厕所)
+                    limitToCurrentPlot = true; 
+                    
+                    // 如果是娱乐需求(摸鱼)，也只能在公司内部找(如休息室)
+                    if (type === NeedType.Fun) limitToCurrentPlot = true;
+                } else {
+                    // 不在公司，则强制回家找
+                    forceHome = true;
+                }
             }
         }
 
